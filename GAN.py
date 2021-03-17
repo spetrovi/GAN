@@ -2,16 +2,15 @@ import csv
 import glob
 import numpy as np
 
-from keras.models import Sequential
-from keras.layers import *
-from keras.utils import *
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Input, Dense, Layer, LeakyReLU, Lambda, LSTM
+from tensorflow.keras.optimizers import Adam
+
+#from keras.utils import *
 import tensorflow as tf
-import datetime
-from tensorflow.keras.callbacks import ModelCheckpoint
-from keras.optimizers import Adam
+
 import random
-from keras.layers import Input, Dense
-from keras.models import Model
+
 import keras.backend as K
 import statistics 
 # train the discriminator model
@@ -56,7 +55,7 @@ def shuffle_inputs(X, y):
 
 
 # train the discriminator model
-def train_d_better(model, data_generator, g_model, n_iter=1000, n_batch=256):
+def train_d_better(model, data_generator, g_model, n_iter=10, n_batch=256):
     half_batch = int(n_batch / 2)
     #manualy enumerate epochos
     for i in range(n_iter):
@@ -92,9 +91,9 @@ def my_mse(y_true,y_pred):
 # train the generator model
 #g_model input = 5 days (X)
 #g_model output = 6 days (y)
-def train_g_better(g_model, data_generator, n_iter=10000, n_batch=256):
+def train_g_better(g_model, data_generator, n_iter=10, n_batch=256):
     half_batch = int(n_batch / 2)
-    g_model.compile(loss='mse', optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
+    #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
 #    g_model.fit(data_generator.generate_for_gmodel(), steps_per_epoch = 100, batch_size=10, epochs=100)
     #manualy enumerate epochos
     for i in range(n_iter):
@@ -104,7 +103,8 @@ def train_g_better(g_model, data_generator, n_iter=10000, n_batch=256):
     
     
         loss, mse, mae, mape = g_model.train_on_batch(X, y)
- 
+       #To check on values by generator
+        data = next(data_generator.generate_pred(g_model))
         #summarize performance
         print('>%d g_loss=%.10f, mse=%.10f , mae=%.10f, mape=%.10f' % (i+1, loss, mse, mae, mape))        
         
@@ -276,18 +276,22 @@ class KerasBatchGenerator(object):
                 if self.current_idx + self.num_steps >= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
-                    
-                predict_day = g_model.predict(np.array(([self.data[self.current_idx:self.current_idx + self.num_steps]])) )[0][-1]
+                
 
                 x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
                 mean = np.mean(x_days)
                 std = np.std(x_days)
-
+#                predict_day = g_model.predict(np.array(([self.data[self.current_idx:self.current_idx + self.num_steps]])) )[0][-1]
+                predict_day = g_model.predict(np.array(([(x_days - mean) / std])))
+#                print('SOURCE DATA')
+#                print(np.array(([x_days])))
+#                print('Predicting')                
+#                print( (predict_day * std) + mean) 
+                predict_day = predict_day[0][-1]
                 norm_days = []
                 for d in x_days:
                     norm_days.append(list((d - mean) / std))     
 
-                predict_day = (predict_day - mean ) / std
                 x[i, :] = np.append(norm_days, [predict_day], 0)
                 self.current_idx += self.skip_step
 
@@ -327,48 +331,81 @@ def define_generator():
     return model
 """
  
+def define_generator2():    
+    num_steps = 5
+    num_params = 5
+
+    A1 = Input(shape=(num_steps,num_params), name='A1')
+
+    partial_model = Sequential()
+    partial_model.add(A1)
+    partial_model.add(LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU()))
+    partial_model.add(LSTM(num_params, return_sequences=False, input_shape=(num_steps,num_params), activation=LeakyReLU()))
+    partial_model.add(Layer(Dense(1, activation='relu'), name='A6'))
+    partial_model.summary()
+#    A1 = Input(shape=(num_steps,num_params), name='A1')
+#    A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU(), name='A2')(A1)
+#    A3 = LSTM(num_params, return_sequences=False, input_shape=(num_steps,num_params), activation=LeakyReLU(), name='A3')(A2)
+#    A4 = TimeDistributed(Dense(1, activation='sigmoid'), name='A4')(A3)
+#    A4 = TimeDistributed(Dense(5, activation='relu'), name='A4')(A3)
+#    A5 = Layer(Dense(1, activation='relu'), name='A5')(A3)
+#    A6 = tf.keras.layers.Reshape((1,5))(A5)
+    
+    pass_through_model = Sequential()
+    pass_through_model.add(Lambda(lambda x: x, name='B1'))
+
+    B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
+
+    merged_model = Sequential()
+    merged_model.add(keras.engine.topology.Merge([partial_model, pass_through_model], mode='concat', concat_axis=1))
+#    C = tf.keras.layers.Concatenate(axis=1)([B1, partial_model.get_layer('A6')])
+
+    merged = Model(inputs=[A1], outputs=[B1])
+    return merged
+    
 def define_generator():    
     num_steps = 5
     num_params = 5
     A1 = Input(shape=(num_steps,num_params), name='A1')
-    A2 = LSTM(32, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU(), name='A2')(A1)
-    A3 = LSTM(32, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU(), name='A3')(A2)
-    A4 = TimeDistributed(Dense(1, activation='sigmoid'), name='A4')(A3)
-
+    A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), name='A2')(A1)
+    A21 = LeakyReLU(name='A21')(A2)     
+    A3 = LSTM(num_params, return_sequences=False, input_shape=(num_steps,num_params), name='A3')(A21)
+    A31 = LeakyReLU(name='A31')(A3) 
+#    A4 = TimeDistributed(Dense(1, activation='sigmoid'), name='A4')(A3)
+#    A4 = TimeDistributed(Dense(5, activation='relu'), name='A4')(A3)
+    A5 = Layer(Dense(1, activation='relu'), name='A5')(A31)
+    A6 = tf.keras.layers.Reshape((1,5))(A5)
+    
     B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
 
-    A41 = tf.keras.layers.Reshape((1,5))(A4)
 
-    C = tf.keras.layers.Concatenate(axis=1)([B1, A41])
+    C = tf.keras.layers.Concatenate(axis=1)([B1, A6])
 
     merged = Model(inputs=[A1], outputs=[C])
     return merged
+    
 
 #define the standalone discriminator model
 def define_discriminator():
     num_params = 5
     num_steps = 6
     model = Sequential()
-#    model.add(LSTM(64, return_sequences=True, input_shape=(num_steps,num_params)))
-#    model.add(LSTM(64, return_sequences=True, input_shape=(num_steps,num_params)))
-#    model.add(TimeDistributed(Dense(num_params, activation=LeakyReLU())))
+#    model.add(LSTM(32, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU()))
+#    model.add(LSTM(32, return_sequences=True, input_shape=(num_steps,num_params), activation=LeakyReLU()))
+#    model.add(TimeDistributed(Dense(5, activation=LeakyReLU())))
     model.add(Dense(72))
-    model.add(LeakyReLU(0.7))
+    model.add(LeakyReLU())
     model.add(Dense(100))
-    model.add(LeakyReLU(0.7))    
+    model.add(LeakyReLU())    
     model.add(Dense(10))
-    model.add(LeakyReLU(0.7))    
+    model.add(LeakyReLU())    
     model.add(Dense(1, activation='sigmoid'))
     opt = Adam(lr=0.0002, beta_1=0.5)
     model.compile(loss='binary_crossentropy', optimizer='adam',  metrics=['accuracy'])
     return model
 
 
-def my_binary_crossentropy(y_true, y_pred):
-    print(K.cast(y_true, 'float'))
-    cce = tf.keras.losses.BinaryCrossentropy()
-    return cce(y_true, y_pred)
-    
+
     
 #define GAN by sequentialy combining generator and discriminator
 #We freeze the discriminator model, so it is updated only when we train it alone
@@ -383,8 +420,9 @@ def define_GAN(g_model, d_model):
     #add discriminator
     model.add(d_model)
     #compile
+    #maybe this Adam settings is not good
     opt = Adam(lr=0.0002, beta_1=0.5)
-    model.compile(loss='binary_crossentropy', optimizer=opt)
+    model.compile(loss='binary_crossentropy', optimizer='adam')
     return model
 
 
@@ -433,7 +471,6 @@ def train(g_model, d_model, a_model, data_generator, test_generator, n_epochs=10
             
         #summary
         print('>%d, %d/%d, d_loss=%.10f, d_acc=%.10f, a_loss=%.10f' % (i+1, j+1, batch_size, d_loss, d_acc, a_loss))
-        g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])            
         g_model.evaluate(test_generator.generate_for_gmodel(), steps=100)
 
 
@@ -469,23 +506,30 @@ test_generator = KerasBatchGenerator(test_data, num_steps, batch_size, num_param
 
 #Train discriminator
 #d_model.summary()
-#train_d_better(d_model, data_generator, g_model)
+g_model.compile(loss='mse', optimizer='adam',  metrics=['mse', 'mae', 'mape'])         
+g_model.summary()
 #train_g_better(g_model, data_generator)
-train(g_model, d_model, a_model, data_generator, test_generator)
+#train_d_better(d_model, data_generator, g_model)
+
+#g_model.summary()
+#train_g_better(g_model, data_generator)
+#train(g_model, d_model, a_model, data_generator, test_generator)
 
 #g_model.compile(loss='mse', optimizer='adam',  metrics=['accuracy'])
 
 #save the generator model
 #g_model.summary()
 data_path_g = "gan_proper/1_generator"
-data_path_d = "gan_proper/1_discriminator"
+#data_path_d = "gan_proper/1_discriminator"
+#g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
 g_model.save(data_path_g)
-d_model.save(data_path_d)
+#d_model.save(data_path_d)
 
-
-#g_model = tf.keras.models.load_model(data_path_g)
-
-
+#g_model.compile(loss='mse', optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
+#g_model = tf.keras.models.load_model(data_path_g, custom_objects={'_tf_keras_rnn_layer':tf.keras.layers.RNN})
+g_model = tf.keras.models.load_model(data_path_g)
+#g_model.load_weights('gan_proper/1_generator/saved_model.pb')
+#d_model = tf.keras.models.load_model(data_path_d)
 recent_data = np.array([dataset[len(dataset)-5 : len(dataset)]])
 mean = np.mean(recent_data)
 std = np.std(recent_data)
