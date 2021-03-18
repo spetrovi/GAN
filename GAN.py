@@ -80,6 +80,25 @@ def train_d_better(model, data_generator, g_model, n_iter=1000, n_batch=256):
         #summarize performance
         print('>%d d_loss=%.10f, acc=%.0f%%' % (i+1, loss, acc*100))        
 
+def my_dacc(y_true, y_pred):
+    #from every element of batch, elem, we want to take elem[-1][0]
+    #for this we need to do some transpositions, to select correct data
+    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
+    y_trues = tf.transpose(y_trues)[0]
+    y_trues = tf.math.greater(y_trues, 0.5)  
+    
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    y_preds = tf.transpose(y_preds)[0]    
+    y_preds = tf.math.greater(y_preds, 0.5)  
+    
+#    tf.print(y_trues, summarize=-1)
+#    tf.print(y_preds, summarize=-1)
+
+    eqs = tf.math.equal(y_trues, y_preds)
+    eq_sum = tf.reduce_sum(tf.cast(eqs, tf.float32))
+    
+    return eq_sum/y_trues.shape[0]
+
 #y is in this format
 #It is a batch of ys we generate in generator
 #the y is values for 6 days and array with prediction (one value copied) as 7th element
@@ -131,25 +150,36 @@ def my_dloss(y_true,y_pred):
     
 def my_aloss(y_true,y_pred):
     
+
     #gMSE
     predx1 = tf.transpose(y_pred, perm=[1,0,2])[-2]
     realx1 = tf.transpose(y_true, perm=[1,0,2])[-2]
     
     subs = tf.math.subtract(predx1, realx1)
     squares = tf.math.multiply(subs, subs)
-    
     xsum = tf.math.reduce_sum(squares)
-    gMSE = tf.math.multiply(xsum, 1/y_true.shape[0])
+    gMSE = tf.math.multiply(xsum, 1/(y_true.shape[2]*y_true.shape[0]))
 
-    #gloss
+    #---------------gloss-------------------------------------------------#
+    #We want to penalise the generator if it doesnt fool the discriminator
+    #In case the discriminator outputs 0 (or number close to 0), it thinks the data is faked
+    #if it think it's fake, we will compute logarithm (1), which is 0
+    #if it thinks its real(0.9), we will compute logarithm (0.1), which is -2.3
+    #Therefore, the more we fool the discriminator, the more we decrease the loss
+    #--------------gloss--------------------------------------------------#
     y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
-    Xfake = tf.transpose(y_preds)[0]    
 
+    Xfake = tf.transpose(y_preds)[0]    
     sub_fake = tf.math.subtract(1.0, Xfake)
     log_fake = tf.math.log(sub_fake)
-    sum_fake = tf.math.reduce_sum(log_fake)    
+    sum_fake = tf.math.reduce_sum(log_fake)
     gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
-    return gMSE - gloss
+    
+
+    #maybe gloss hyperparameter should be negative!
+    h1 = 1
+    h2 = 1
+    return h1*gMSE + h2*gloss
 
 
 def my_mse(y_true,y_pred):
@@ -247,7 +277,7 @@ class KerasBatchGenerator(object):
 
         while True:
             for i in range(self.batch_size):
-                if self.current_idx + self.num_steps >= len(self.data):
+                if self.current_idx + self.num_steps + 1>= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
 
@@ -279,7 +309,7 @@ class KerasBatchGenerator(object):
 
         while True:
             for i in range(self.batch_size):
-                if self.current_idx + self.num_steps >= len(self.data):
+                if self.current_idx + self.num_steps + 1>= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
 
@@ -366,7 +396,7 @@ class KerasBatchGenerator(object):
 
         while True:
             for i in range(self.batch_size):
-                if self.current_idx + self.num_steps >= len(self.data):
+                if self.current_idx + self.num_steps + 1>= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
                 
@@ -471,7 +501,7 @@ def define_discriminator(num_steps=6, num_params=5):
     C = tf.keras.layers.Concatenate(axis=1)([B1, A6])
     
     merged = Model(inputs=[A1], outputs=[C])
-    merged.compile(loss=my_dloss, optimizer='adam',  metrics=['accuracy'])
+    merged.compile(loss=my_dloss, optimizer='adam',  metrics=[my_dacc])
     return merged
 
 
@@ -499,10 +529,10 @@ def define_GAN(g_model, d_model):
 
 def train(g_model, d_model, a_model, data_generator, test_generator, n_epochs=50, n_batch=256):
     batch_size = 1000
+    
     for i in range(n_epochs):
         print('Pretraining Discriminator')
-        train_d_better(d_model, data_generator, g_model, n_iter=50)            
-        
+        train_d_better(d_model, data_generator, g_model, n_iter=50)        
         print('Evaluating generator')
         g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
         g_model.evaluate(test_generator.generate_for_gmodel(), steps=100)
@@ -563,7 +593,10 @@ a_model = define_GAN(g_model, d_model)
 data_generator = KerasBatchGenerator(train_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
 test_generator = KerasBatchGenerator(test_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
 train(g_model, d_model, a_model, data_generator, test_generator)
-
+data_path_g = "gan_training/1_gen"
+data_path_d = "gan_training/1_dis"
+g_model.save(data_path_g)
+d_model.save(data_path_d)
 #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
 
 #train_g_better(g_model, data_generator)
