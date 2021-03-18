@@ -99,7 +99,6 @@ def my_dloss(y_true,y_pred):
     #Now we need to separate the predictions
     #Xreal will contain predictions for when data was real
     #Xfake will contain predictions for when data was fake
-    print('Welcome to custom function')    
 
     #get indexes of truthfull y
     eqs = tf.math.equal(y_trues, 1)
@@ -112,7 +111,6 @@ def my_dloss(y_true,y_pred):
     sum_real = tf.math.reduce_sum(log_real)
     
     fin_real = tf.math.multiply(sum_real, -(1/y_true.shape[0]))
-    tf.print(fin_real)
     
     
     #get indexes of fake y
@@ -129,28 +127,29 @@ def my_dloss(y_true,y_pred):
     
     fin_fake = tf.math.multiply(sum_fake, 1/y_true.shape[0])
 
-    
-    #pseudocode
-    #Xreal = [y_pred where y_true = 1]
-    #Xfake = [y_pred where y_true = 0]
-    
-    #log_real = log(Xreal)
-    #sum_real = K.sum(log_real)
-    
-    #fin_real = -(1/len(y_true)) * sum_real
-    
-    #dif_fake = 1 - Xfake
-    #log_fake = log(dif_fake)
-    #sum_fake = sum(log_fake)
-    #fin_fake = (1/len(y_true)) * sum_fake
-    
-    #return (fin_real - fin_fake)
-    
-    #print(y_true.shape)
-    #print(y_pred.shape)
     return tf.math.subtract(fin_real, fin_fake)
     
+def my_aloss(y_true,y_pred):
+    
+    #gMSE
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-2]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-2]
+    
+    subs = tf.math.subtract(predx1, realx1)
+    squares = tf.math.multiply(subs, subs)
+    
+    xsum = tf.math.reduce_sum(squares)
+    gMSE = tf.math.multiply(xsum, 1/y_true.shape[0])
 
+    #gloss
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    Xfake = tf.transpose(y_preds)[0]    
+
+    sub_fake = tf.math.subtract(1.0, Xfake)
+    log_fake = tf.math.log(sub_fake)
+    sum_fake = tf.math.reduce_sum(log_fake)    
+    gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+    return gMSE - gloss
 
 
 def my_mse(y_true,y_pred):
@@ -273,6 +272,44 @@ class KerasBatchGenerator(object):
                 self.current_idx += self.skip_step
 
             yield (x, y)
+            
+    def generate_for_amodel(self):
+        x = np.zeros((self.batch_size, self.num_steps, self.num_params))
+        y = np.ones((self.batch_size, self.num_steps+2, self.num_params))
+
+        while True:
+            for i in range(self.batch_size):
+                if self.current_idx + self.num_steps >= len(self.data):
+                    # reset the index back to the start of the data set
+                    self.current_idx = 0
+
+                x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
+                mean = np.mean(x_days)
+                std = np.std(x_days)
+
+                norm_days = []
+                for d in x_days:
+                    norm_days.append(list((d - mean) / std))
+                    
+
+                x[i, :] = norm_days
+                
+                
+                x_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                mean = np.mean(x_days)
+                std = np.std(x_days)
+
+                norm_days = []
+                for d in x_days:
+                    norm_days.append(list((d - mean) / std))
+
+                norm_days.append(np.zeros((self.num_params)))
+
+                y[i, :] = norm_days
+                
+                self.current_idx += self.skip_step
+
+            yield (x, y)            
 
             
     def generate_fake(self):
@@ -290,30 +327,7 @@ class KerasBatchGenerator(object):
 
             yield (x, y)
             
-    #Generate training data for adversary model
-    #X is batches of 5 days (inputs for generator)
-    #y is ones
-    def generate_for_amodel(self):
-        x = np.zeros((self.batch_size, self.num_steps, self.num_params))
-        y = np.ones((self.batch_size))
 
-        while True:
-            for i in range(self.batch_size):
-                if self.current_idx + self.num_steps >= len(self.data):
-                    # reset the index back to the start of the data set
-                    self.current_idx = 0
-                x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
-                mean = np.mean(x_days)
-                std = np.std(x_days)
-
-                norm_days = []
-                for d in x_days:
-                    norm_days.append(list((d - mean) / std))            
-                x[i, :] = norm_days
-                self.current_idx += self.skip_step
-
-            yield (x, y)
-    
     #Generate training data for generator model
     #X is batches of 5 days (inputs)
     #y are the same days but with one more day (outputs)
@@ -477,7 +491,7 @@ def define_GAN(g_model, d_model):
     #compile
     #maybe this Adam settings is not good
     opt = Adam(lr=0.0002, beta_1=0.5)
-    model.compile(loss='binary_crossentropy', optimizer=opt)
+    model.compile(loss=my_aloss, optimizer=opt)
     return model
 
 
@@ -546,14 +560,14 @@ g_model = define_generator()
 d_model = define_discriminator()
 a_model = define_GAN(g_model, d_model)
 
-#data_generator = KerasBatchGenerator(train_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
+data_generator = KerasBatchGenerator(train_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
 test_generator = KerasBatchGenerator(test_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
-
+train(g_model, d_model, a_model, data_generator, test_generator)
 
 #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
 
 #train_g_better(g_model, data_generator)
-train_d_better(d_model, test_generator, g_model)
+#train_d_better(d_model, test_generator, g_model)
 
 """     
 #Pretrain generator and discriminator for a bit
