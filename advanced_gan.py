@@ -14,227 +14,6 @@ import random
 import keras.backend as K
 import statistics 
 
-        
-def shuffle_inputs(X, y):
-
-    X_new = np.zeros((len(X), len(X[0]), len(X[0][0])))
-    y_new = []
-
-    
-    positions = [i for i in range(len(X))]
-
-    random.shuffle(positions)
-
-    for i, pos in enumerate(positions):
-        X_new[i,:] = X[pos]
-        y_new.append(y[pos])
-        
-        
-    return X_new, np.array(y_new)
-
-
-# train the discriminator model
-def train_d_better(model, data_generator, g_model, n_iter=1000, n_batch=256):
-    #manualy enumerate epochos
-    for i in range(n_iter):
-        #get a batch of real data
-        #true_data_generator = KerasBatchGenerator(dataset, num_steps, batch_size, latent_dim, num_params, skip_step=num_steps)
-        data = next(data_generator.generate_for_dmodel(trues=True))
-        X_real, y_real = data[0], data[1]
-
-        #generate 'fake' examples
-        data = next(data_generator.generate_pred(g_model))
-        X_fake, y_fake = data[0], data[1]
-
-        #update discriminator on fake samples
-
-        X = np.concatenate((X_real, X_fake), axis=0)
-        y = np.concatenate((y_real, y_fake), axis=0)
-
-        X, y = shuffle_inputs(X, y)
-
-        loss, acc = model.train_on_batch(X, y)
- 
-        #summarize performance
-        print('>%d d_loss=%.10f, acc=%.0f%%' % (i+1, loss, acc*100))        
-
-def my_dacc(y_true, y_pred):
-    #from every element of batch, elem, we want to take elem[-1][0]
-    #for this we need to do some transpositions, to select correct data
-    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
-    y_trues = tf.transpose(y_trues)[0]
-    y_trues = tf.math.greater(y_trues, 0.5)  
-    
-    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
-    y_preds = tf.transpose(y_preds)[0]    
-    y_preds = tf.math.greater(y_preds, 0.5)  
-    
-#    tf.print(y_trues, summarize=-1)
-#    tf.print(y_preds, summarize=-1)
-
-    eqs = tf.math.equal(y_trues, y_preds)
-    eq_sum = tf.reduce_sum(tf.cast(eqs, tf.float32))
-    
-    return eq_sum/y_trues.shape[0]
-
-#y is in this format
-#It is a batch of ys we generate in generator
-#the y is values for 6 days and array with prediction (one value copied) as 7th element
-#For standalone dloss function, we only need predictions
-#The paper does the Dloss as follows
-#-1/m * sum(log(sigmoid when inputing real)) - 1/m * sum(log(1-sigmoid when inputig fake))
-def my_dloss(y_true,y_pred):
-    
-    #from every element of batch, elem, we want to take elem[-1][0]
-    #for this we need to do some transpositions, to select correct data
-    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
-    y_trues = tf.transpose(y_trues)[0]
-    
-    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
-    y_preds = tf.transpose(y_preds)[0]    
-    
-    #Now we need to separate the predictions
-    #Xreal will contain predictions for when data was real
-    #Xfake will contain predictions for when data was fake
-
-    #get indexes of truthfull y
-    eqs = tf.math.equal(y_trues, 1)
-    idx = tf.where(eqs)
-    
-    #predictions for when data was real
-    Xreal = tf.gather(y_preds, idx)
-
-    log_real = tf.math.log(Xreal)
-    sum_real = tf.math.reduce_sum(log_real)
-    
-    fin_real = tf.math.multiply(sum_real, -(1/y_true.shape[0]))
-    
-    
-    #get indexes of fake y
-    eqs = tf.math.equal(y_trues, 0)
-    idx = tf.where(eqs)
-    
-    #predictions for when data was fake
-    Xfake = tf.gather(y_preds, idx)
-
-    sub_fake = tf.math.subtract(1.0, Xfake)
-
-    log_fake = tf.math.log(sub_fake)
-    sum_fake = tf.math.reduce_sum(log_fake)
-    
-    fin_fake = tf.math.multiply(sum_fake, 1/y_true.shape[0])
-
-    return tf.math.subtract(fin_real, fin_fake)
-    
-def my_aloss(y_true,y_pred):
-    
-
-    #gMSE
-    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-2]
-    realx1 = tf.transpose(y_true, perm=[1,0,2])[-2]
-    
-    subs = tf.math.subtract(predx1, realx1)
-    squares = tf.math.multiply(subs, subs)
-    xsum = tf.math.reduce_sum(squares)
-    gMSE = tf.math.multiply(xsum, 1/(y_true.shape[2]*y_true.shape[0]))
-
-    #---------------gloss-------------------------------------------------#
-    #We want to penalise the generator if it doesnt fool the discriminator
-    #In case the discriminator outputs 0 (or number close to 0), it thinks the data is faked
-    #if it think it's fake, we will compute logarithm (1), which is 0
-    #if it thinks its real(0.9), we will compute logarithm (0.1), which is -2.3
-    #Therefore, the more we fool the discriminator, the more we decrease the loss
-    #Beware, if generator is too good, this will push the loss to negative infinity
-    #--------------gloss--------------------------------------------------#
-    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
-
-    Xfake = tf.transpose(y_preds)[0]    
-    sub_fake = tf.math.subtract(1.0, Xfake)
-    log_fake = tf.math.log(sub_fake)
-    sum_fake = tf.math.reduce_sum(log_fake)
-    gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
-    
-
-    #maybe gloss hyperparameter should be negative!
-    h1 = 1
-    h2 = 1
-    return h1*gMSE + h2*gloss
-
-
-def my_mse(y_true,y_pred):
-    y_true = tf.transpose(y_true)[-1]
-    y_pred = tf.transpose(y_pred)[-1]
-    return K.mean(K.square(y_pred-y_true))
-    
-# train the generator model
-#g_model input = 5 days (X)
-#g_model output = 6 days (y)
-def train_g_better(g_model, data_generator, n_iter=10, n_batch=256):
-    half_batch = int(n_batch / 2)
-    #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
-#    g_model.fit(data_generator.generate_for_gmodel(), steps_per_epoch = 100, batch_size=10, epochs=100)
-    #manualy enumerate epochos
-    for i in range(n_iter):
-
-        #get a batch of  data
-        (X, y) = next(data_generator.generate_for_gmodel())
-    
-    
-        loss, mse, mae, mape = g_model.train_on_batch(X, y)
-       #To check on values by generator
-        data = next(data_generator.generate_pred(g_model))
-        #summarize performance
-        print('>%d g_loss=%.10f, mse=%.10f , mae=%.10f, mape=%.10f' % (i+1, loss, mse, mae, mape))        
-        
-        
-#Normalise prices to [0,1] interval
-def normalise(price, high, low):
-    return (price - low) / (high - low)
-
-#86.716 15.965
-def denormalise(price, high=86.716, low=15.965):
-    return price * (high - low) + low
-    
-    
-def process_original(name, output, ma_days=5):
-    orig = glob.glob(name)[0]
-    bars = []
-    closes = []
-    with open(orig, newline='') as csvfile:
-        csvreader = csv.reader(csvfile, delimiter=',', quotechar='|')
-        for i, row in enumerate(csvreader):
-            if i > 0 and float(row[5]) > 0.0:           
-                open_p = float(row[1])
-                high = float(row[2])
-                low = float(row[3])
-                close = float(row[4])
-                
-                if i == 1:
-                    max_p = open_p
-                    min_p = open_p
-                
-                
-                if i > ma_days:
-                    #moving average for past X days
-                    s = 0
-                    for j in range(1, 1+ma_days):
-                        s += closes[-j]
-                    moving_avg = s / ma_days
-                    bars.append(np.array([open_p,high,low,close,moving_avg]))
-                    
-                    #For normalisation purposes
-                    if max([open_p,high,low,close]) > max_p:
-                        max_p = max([open_p,high,low,close])
-                    if min([open_p,high,low,close]) < min_p:
-                        min_p = min([open_p,high,low,close])
-                closes.append(close)
-    out = []
-    print(max_p, min_p)
-    for l in bars:
-        out.append(list(map(lambda x: x, l)))
-
-    return np.array(out)
-	
 class KerasBatchGenerator(object):
     def __init__(self, data, num_steps, batch_size, num_params, latent_dim, skip_step=1):
         self.data = data
@@ -423,6 +202,229 @@ class KerasBatchGenerator(object):
 
 
 
+def shuffle_inputs(X, y):
+
+    X_new = np.zeros((len(X), len(X[0]), len(X[0][0])))
+    y_new = []
+
+    
+    positions = [i for i in range(len(X))]
+
+    random.shuffle(positions)
+
+    for i, pos in enumerate(positions):
+        X_new[i,:] = X[pos]
+        y_new.append(y[pos])
+        
+        
+    return X_new, np.array(y_new)
+
+
+# train the discriminator model
+def train_d_better(model, data_generator, g_model, n_iter=1000, n_batch=256):
+    half_batch = int(n_batch / 2)
+    #manualy enumerate epochos
+    for i in range(n_iter):
+        #get a batch of real data
+        #true_data_generator = KerasBatchGenerator(dataset, num_steps, batch_size, latent_dim, num_params, skip_step=num_steps)
+        data = next(data_generator.generate_for_dmodel(trues=True))
+        X_real, y_real = data[0], data[1]
+
+        #generate 'fake' examples
+        data = next(data_generator.generate_pred(g_model))
+        X_fake, y_fake = data[0], data[1]
+
+        #update discriminator on fake samples
+
+        X = np.concatenate((X_real, X_fake), axis=0)
+        y = np.concatenate((y_real, y_fake), axis=0)
+
+        X, y = shuffle_inputs(X, y)
+
+        loss, acc = model.train_on_batch(X, y)
+ 
+        #summarize performance
+        print('>%d d_loss=%.10f, acc=%.0f%%' % (i+1, loss, acc*100))        
+
+def my_dacc(y_true, y_pred):
+    #from every element of batch, elem, we want to take elem[-1][0]
+    #for this we need to do some transpositions, to select correct data
+    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
+    y_trues = tf.transpose(y_trues)[0]
+    y_trues = tf.math.greater(y_trues, 0.5)  
+    
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    y_preds = tf.transpose(y_preds)[0]    
+    y_preds = tf.math.greater(y_preds, 0.5)  
+    
+#    tf.print(y_trues, summarize=-1)
+#    tf.print(y_preds, summarize=-1)
+
+    eqs = tf.math.equal(y_trues, y_preds)
+    eq_sum = tf.reduce_sum(tf.cast(eqs, tf.float32))
+    
+    return eq_sum/y_trues.shape[0]
+
+#y is in this format
+#It is a batch of ys we generate in generator
+#the y is values for 6 days and array with prediction (one value copied) as 7th element
+#For standalone dloss function, we only need predictions
+#The paper does the Dloss as follows
+#-1/m * sum(log(sigmoid when inputing real)) - 1/m * sum(log(1-sigmoid when inputig fake))
+def my_dloss(y_true,y_pred):
+    
+    #from every element of batch, elem, we want to take elem[-1][0]
+    #for this we need to do some transpositions, to select correct data
+    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
+    y_trues = tf.transpose(y_trues)[0]
+    
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    y_preds = tf.transpose(y_preds)[0]    
+    
+    #Now we need to separate the predictions
+    #Xreal will contain predictions for when data was real
+    #Xfake will contain predictions for when data was fake
+
+    #get indexes of truthfull y
+    eqs = tf.math.equal(y_trues, 1)
+    idx = tf.where(eqs)
+    
+    #predictions for when data was real
+    Xreal = tf.gather(y_preds, idx)
+
+    log_real = tf.math.log(Xreal)
+    sum_real = tf.math.reduce_sum(log_real)
+    
+    fin_real = tf.math.multiply(sum_real, -(1/y_true.shape[0]))
+    
+    
+    #get indexes of fake y
+    eqs = tf.math.equal(y_trues, 0)
+    idx = tf.where(eqs)
+    
+    #predictions for when data was fake
+    Xfake = tf.gather(y_preds, idx)
+
+    sub_fake = tf.math.subtract(1.0, Xfake)
+
+    log_fake = tf.math.log(sub_fake)
+    sum_fake = tf.math.reduce_sum(log_fake)
+    
+    fin_fake = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+
+    return tf.math.subtract(fin_real, fin_fake)
+    
+def my_aloss(y_true,y_pred):
+    
+
+    #gMSE
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-2]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-2]
+    
+    subs = tf.math.subtract(predx1, realx1)
+    squares = tf.math.multiply(subs, subs)
+    xsum = tf.math.reduce_sum(squares)
+    gMSE = tf.math.multiply(xsum, 1/(y_true.shape[2]*y_true.shape[0]))
+
+    #---------------gloss-------------------------------------------------#
+    #We want to penalise the generator if it doesnt fool the discriminator
+    #In case the discriminator outputs 0 (or number close to 0), it thinks the data is faked
+    #if it think it's fake, we will compute logarithm (1), which is 0
+    #if it thinks its real(0.9), we will compute logarithm (0.1), which is -2.3
+    #Therefore, the more we fool the discriminator, the more we decrease the loss
+    #--------------gloss--------------------------------------------------#
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+
+    Xfake = tf.transpose(y_preds)[0]    
+    sub_fake = tf.math.subtract(1.0, Xfake)
+    log_fake = tf.math.log(sub_fake)
+    sum_fake = tf.math.reduce_sum(log_fake)
+    gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+    
+
+    #maybe gloss hyperparameter should be negative!
+    h1 = 1
+    h2 = 1
+    return h1*gMSE + h2*gloss
+
+
+def my_mse(y_true,y_pred):
+    y_true = tf.transpose(y_true)[-1]
+    y_pred = tf.transpose(y_pred)[-1]
+    return K.mean(K.square(y_pred-y_true))
+    
+# train the generator model
+#g_model input = 5 days (X)
+#g_model output = 6 days (y)
+def train_g_better(g_model, data_generator, n_iter=10, n_batch=256):
+    half_batch = int(n_batch / 2)
+    #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])    
+#    g_model.fit(data_generator.generate_for_gmodel(), steps_per_epoch = 100, batch_size=10, epochs=100)
+    #manualy enumerate epochos
+    for i in range(n_iter):
+
+        #get a batch of  data
+        (X, y) = next(data_generator.generate_for_gmodel())
+    
+    
+        loss, mse, mae, mape = g_model.train_on_batch(X, y)
+       #To check on values by generator
+        data = next(data_generator.generate_pred(g_model))
+        #summarize performance
+        print('>%d g_loss=%.10f, mse=%.10f , mae=%.10f, mape=%.10f' % (i+1, loss, mse, mae, mape))        
+        
+        
+#Normalise prices to [0,1] interval
+def normalise(price, high, low):
+    return (price - low) / (high - low)
+
+#86.716 15.965
+def denormalise(price, high=86.716, low=15.965):
+    return price * (high - low) + low
+    
+    
+def process_original(name, output, ma_days=5):
+    orig = glob.glob(name)[0]
+    bars = []
+    closes = []
+    with open(orig, newline='') as csvfile:
+        csvreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+        for i, row in enumerate(csvreader):
+            if i > 0 and float(row[5]) > 0.0:           
+                open_p = float(row[1])
+                high = float(row[2])
+                low = float(row[3])
+                close = float(row[4])
+                
+                if i == 1:
+                    max_p = open_p
+                    min_p = open_p
+                
+                
+                if i > ma_days:
+                    #moving average for past X days
+                    s = 0
+                    for j in range(1, 1+ma_days):
+                        s += closes[-j]
+                    moving_avg = s / ma_days
+                    bars.append(np.array([open_p,high,low,close,moving_avg]))
+                    
+                    #For normalisation purposes
+                    if max([open_p,high,low,close]) > max_p:
+                        max_p = max([open_p,high,low,close])
+                    if min([open_p,high,low,close]) < min_p:
+                        min_p = min([open_p,high,low,close])
+                closes.append(close)
+    out = []
+    print(max_p, min_p)
+    for l in bars:
+        out.append(list(map(lambda x: x, l)))
+
+    return np.array(out)
+	
+
+
+
 def define_generator():    
     num_steps = 5
     num_params = 5
@@ -500,18 +502,18 @@ def define_GAN(g_model, d_model):
     #compile
     #maybe this Adam settings is not good
     opt = Adam(lr=0.0002, beta_1=0.5)
-    model.compile(loss=my_aloss, optimizer=opt)
+    model.compile(loss=my_aloss, optimizer='adam')
     return model
 
 
 
 
-def train(g_model, d_model, a_model, data_generator, test_generator, n_epochs=50, n_batch=256):
+def train(g_model, d_model, a_model, data_generator, test_generator, n_epochs=6, n_batch=256):
     batch_size = 1000
     
     for i in range(n_epochs):
         print('Pretraining Discriminator')
-        train_d_better(d_model, data_generator, g_model, n_iter=50)        
+        train_d_better(d_model, data_generator, g_model, n_iter=200)        
         print('Evaluating generator')
         g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
         g_model.evaluate(test_generator.generate_for_gmodel(), steps=100)
@@ -571,12 +573,16 @@ a_model = define_GAN(g_model, d_model)
 
 data_generator = KerasBatchGenerator(train_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
 test_generator = KerasBatchGenerator(test_data, num_steps, batch_size, num_params, latent_dim, skip_step=1)
-train_d_better(d_model, data_generator, g_model, n_iter=500)
-#train(g_model, d_model, a_model, data_generator, test_generator)
-#data_path_g = "gan_training/1_gen"
-#data_path_d = "gan_training/1_dis"
-#g_model.save(data_path_g)
-#d_model.save(data_path_d)
+train(g_model, d_model, a_model, data_generator, test_generator)
+#train_d_better(d_model, data_generator, g_model)
+data_path_g = "gan_training/1_gen"
+data_path_d = "gan_training/1_dis"
+#g_model = tf.keras.models.load_model(data_path_g, compile=False)
+#d_model = tf.keras.models.load_model(data_path_d, compile=False)
+
+
+g_model.save(data_path_g)
+d_model.save(data_path_d)
 #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
 
 #train_g_better(g_model, data_generator)
@@ -622,6 +628,7 @@ def save_for_plot(g_model, dataset):
     lows_real = []
     lows_pred = []
     for i in range(5, len(dataset)-1):
+        print(i)
     #for i in range(5, 20):
         recent_data = np.array([dataset[i-5 : i]])
 
@@ -647,9 +654,9 @@ def save_for_plot(g_model, dataset):
         w.write(str(val) + ',')
     w.close()
 
+#save_for_plot(g_model, dataset)
 
 
-"""
 #g_model.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])       
 recent_data = np.array([dataset[len(dataset)-5 : len(dataset)]])
 mean = np.mean(recent_data)
@@ -658,14 +665,13 @@ std = np.std(recent_data)
 #normalise
 norm_r = (recent_data-mean)/std
 
-
+g_model = define_generator()
 prediction = g_model.predict(norm_r)
 print('Actual day:')
 print(recent_data)
 
 print('Predicted next day:')
 print(mean + (prediction*std))
-"""
 
 
 
