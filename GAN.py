@@ -82,16 +82,75 @@ def train_d_better(model, data_generator, g_model, n_iter=1000, n_batch=256):
 
 #y is in this format
 #It is a batch of ys we generate in generator
-#the y is values for 6 days and array with prediction (one value copied)
+#the y is values for 6 days and array with prediction (one value copied) as 7th element
 #For standalone dloss function, we only need predictions
 #The paper does the Dloss as follows
-#-1/m * sum(log )
+#-1/m * sum(log(sigmoid when inputing real)) - 1/m * sum(log(1-sigmoid when inputig fake))
 def my_dloss(y_true,y_pred):
-#    y_true = tf.transpose(tf.reshape(y_true,(10,5)))[-1]
-#    y_pred = tf.transpose(tf.reshape(y_pred,(10,5)))[-1]
-    y_true = tf.transpose(y_true)[-1]
-    y_pred = tf.transpose(y_pred)[-1]
-    return K.mean(K.square(y_pred-y_true))
+    
+    #from every element of batch, elem, we want to take elem[-1][0]
+    #for this we need to do some transpositions, to select correct data
+    y_trues = tf.transpose(y_true, perm=[1,0,2])[-1]
+    y_trues = tf.transpose(y_trues)[0]
+    
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    y_preds = tf.transpose(y_preds)[0]    
+    
+    #Now we need to separate the predictions
+    #Xreal will contain predictions for when data was real
+    #Xfake will contain predictions for when data was fake
+    print('Welcome to custom function')    
+
+    #get indexes of truthfull y
+    eqs = tf.math.equal(y_trues, 1)
+    idx = tf.where(eqs)
+    
+    #predictions for when data was real
+    Xreal = tf.gather(y_preds, idx)
+
+    log_real = tf.math.log(Xreal)
+    sum_real = tf.math.reduce_sum(log_real)
+    
+    fin_real = tf.math.multiply(sum_real, -(1/y_true.shape[0]))
+    tf.print(fin_real)
+    
+    
+    #get indexes of fake y
+    eqs = tf.math.equal(y_trues, 0)
+    idx = tf.where(eqs)
+    
+    #predictions for when data was fake
+    Xfake = tf.gather(y_preds, idx)
+
+    sub_fake = tf.math.subtract(1.0, Xfake)
+
+    log_fake = tf.math.log(sub_fake)
+    sum_fake = tf.math.reduce_sum(log_fake)
+    
+    fin_fake = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+
+    
+    #pseudocode
+    #Xreal = [y_pred where y_true = 1]
+    #Xfake = [y_pred where y_true = 0]
+    
+    #log_real = log(Xreal)
+    #sum_real = K.sum(log_real)
+    
+    #fin_real = -(1/len(y_true)) * sum_real
+    
+    #dif_fake = 1 - Xfake
+    #log_fake = log(dif_fake)
+    #sum_fake = sum(log_fake)
+    #fin_fake = (1/len(y_true)) * sum_fake
+    
+    #return (fin_real - fin_fake)
+    
+    #print(y_true.shape)
+    #print(y_pred.shape)
+    return tf.math.subtract(fin_real, fin_fake)
+    
+
 
 
 def my_mse(y_true,y_pred):
