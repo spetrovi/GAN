@@ -95,7 +95,8 @@ def my_dloss(y_true,y_pred):
     
     #predictions for when data was real
     Xreal = tf.gather(y_preds, idx)
-
+    Xreal = Xreal + K.epsilon()
+    
     log_real = tf.math.log(Xreal)
     sum_real = tf.math.reduce_sum(log_real)
     
@@ -110,6 +111,7 @@ def my_dloss(y_true,y_pred):
     Xfake = tf.gather(y_preds, idx)
 
     sub_fake = tf.math.subtract(1.0, Xfake)
+    sub_fake = sub_fake + K.epsilon()
 
     log_fake = tf.math.log(sub_fake)
     sum_fake = tf.math.reduce_sum(log_fake)
@@ -140,6 +142,7 @@ def my_aloss(y_true,y_pred):
 
     Xfake = tf.transpose(y_preds)[0]    
     sub_fake = tf.math.subtract(1.0, Xfake)
+    sub_fake_cor = tf.math.add(sub_fake, K.epsilon())
     log_fake = tf.math.log(sub_fake)
     sum_fake = tf.math.reduce_sum(log_fake)
     gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
