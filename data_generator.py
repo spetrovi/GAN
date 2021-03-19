@@ -200,15 +200,16 @@ def process_original(name, ma_days=5):
                 high = float(row[2])
                 low = float(row[3])
                 close = float(row[4])
-                
+                closes.append(close)
                 if i == 1:
                     max_p = open_p
                     min_p = open_p
                 
                 
-                if i > ma_days:
+                if i > ma_days + 1:
                     #moving average for past X days
                     s = 0
+                    
                     for j in range(1, 1+ma_days):
                         s += closes[-j]
                     moving_avg = s / ma_days
@@ -219,7 +220,7 @@ def process_original(name, ma_days=5):
                         max_p = max([open_p,high,low,close])
                     if min([open_p,high,low,close]) < min_p:
                         min_p = min([open_p,high,low,close])
-                closes.append(close)
+                
     out = []
     print(max_p, min_p)
     for l in bars:
