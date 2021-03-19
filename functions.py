@@ -1,6 +1,55 @@
 import tensorflow as tf
 import keras.backend as K
 
+def my_gMAE_l(y_true, y_pred):
+    
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    
+    lows_real = tf.transpose(realx1)[2]
+    lows_pred = tf.transpose(predx1)[2]
+        
+    subs = tf.math.subtract(lows_pred, lows_real)
+    _abs = tf.math.abs(subs)
+ 
+    _sum = tf.math.reduce_sum(_abs)
+   
+    gMAE_lows = tf.math.divide(_sum, tf.cast(tf.size(_abs), tf.float32))
+    
+    return gMAE_lows
+    
+    
+def my_gMAE_h(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    
+    highs_real = tf.transpose(realx1)[1]
+    highs_pred = tf.transpose(predx1)[1]
+        
+    subs = tf.math.subtract(highs_pred, highs_real)
+    _abs = tf.math.abs(subs)
+ 
+    _sum = tf.math.reduce_sum(_abs)
+   
+    gMAE_highs = tf.math.divide(_sum, tf.cast(tf.size(_abs), tf.float32))
+    
+    return gMAE_highs
+    
+def my_gMSE(y_true, y_pred):
+
+    #gMSE
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+
+    subs = tf.math.subtract(predx1, realx1)
+
+    squares = tf.math.multiply(subs, subs)
+
+    xsum = tf.math.reduce_sum(squares)
+
+    gMSE = tf.math.divide(xsum, tf.cast(tf.size(squares), tf.float32))
+    return gMSE
+    
 def my_dacc(y_true, y_pred):
     #from every element of batch, elem, we want to take elem[-1][0]
     #for this we need to do some transpositions, to select correct data
