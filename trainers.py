@@ -4,7 +4,8 @@ from utilities import *
 # train the discriminator model
 def train_d_better(model, data_generator, g_model, epochs=1000):
     d_losses = []
-
+    d_accs = []
+    model.trainable = True
     #manualy enumerate epochos
     for i in range(epochs):
         #get a batch of real data
@@ -25,9 +26,11 @@ def train_d_better(model, data_generator, g_model, epochs=1000):
 
         loss, acc = model.train_on_batch(X, y)
         d_losses.append(loss)
+        d_accs.append(acc)
         #summarize performance
-        print('>Epoch: %d d_loss=%.10f, acc=%.0f%%' % (i+1, loss, acc*100))        
-    return d_losses
+        print('>Epoch: %d d_loss=%.10f, acc=%.0f%%' % (i+1, loss, acc*100))
+    model.trainable = False        
+    return d_losses, d_accs
 
     
 # train the generator model
