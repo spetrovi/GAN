@@ -5,21 +5,34 @@ from tensorflow.keras.optimizers import Adam
 from functions import *
 
 def define_generator(num_steps=5, num_params=5):    
-    A1 = Input(shape=(num_steps,num_params), name='A1')
-    A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), name='A2')(A1)
-    A21 = LeakyReLU(name='A21')(A2)     
-    A3 = LSTM(num_params, return_sequences=False, input_shape=(num_steps,num_params), name='A3')(A21)
-    A31 = LeakyReLU(name='A31')(A3) 
-    A32 = Dropout(0.5, name='A32')(A31)
-#    A4 = TimeDistributed(Dense(1, activation='sigmoid'), name='A4')(A3)
-#    A4 = TimeDistributed(Dense(5, activation='relu'), name='A4')(A3)
-    A5 = Layer(Dense(1), name='A5')(A32)
-    A51 = LeakyReLU(name='A51')(A5) 
-    A6 = tf.keras.layers.Reshape((1,5))(A51)
+    A1 = Input(shape=(num_steps,num_params))
+
+    A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params))(A1)
+    A21 = LeakyReLU()(A2)
+    
+    A3 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params))(A21)
+    A31 = LeakyReLU()(A3)    
+    
+    A4 = Dropout(0.5)(A31)
+
+    A5 = TimeDistributed(Dense(num_params))(A4)
+    A51 = LeakyReLU()(A5)    
+    
+    A6 = Flatten(input_shape=(num_steps, num_params))(A51)
+
+    A7 = Dense(num_params)(A6)
+    A71 = LeakyReLU()(A7)    
+
+    #A6 = Layer(Dense(1), name='A6')(A5)
+    #A61 = LeakyReLU(name='A61')(A6) 
+
+    A8 = tf.keras.layers.Reshape((1,num_params))(A71)
+
     B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
-    C = tf.keras.layers.Concatenate(axis=1)([B1, A6])
+    C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
     merged = Model(inputs=[A1], outputs=[C])
-    merged.compile(loss=my_mse, optimizer='adam',  metrics=['mse', 'mae', 'mape'])        
+    merged.compile(loss=my_gMSE, optimizer='adam', metrics=[my_gMSE])        
+
     return merged
     
 
@@ -28,7 +41,7 @@ def define_generator(num_steps=5, num_params=5):
 #input is list of 6 days, we need to concatenate it wih 6 times discriminator prediction
 #we need to use functional model for this
 def define_discriminator(num_steps=6, num_params=5):
-    
+    num_steps = num_steps+1
     A1 = Input(shape=(num_steps,num_params), name='A1')
     A2 = Dense(7, name='A2')(A1)
     A21 = LeakyReLU(name='A21')(A2)   
@@ -36,13 +49,13 @@ def define_discriminator(num_steps=6, num_params=5):
     A31 = LeakyReLU(name='A31')(A3)
     A4 = Dense(10, name='A4')(A31)
     A41 = LeakyReLU(name='A41')(A4)
-    
+    A412 = Dropout(0.5, name='A412')(A41)
     #Ok, here it gets messy, so I'll explain a bit
     #We have some computation going on with, but our input shape is num_steps*num_params
     #That means, that each node's output is array of num_steps elements
     #But for prediction, we only want one!
     #So we use Flatten. This takes the outputs and make a single straight array, that we densely connect to single neuron
-    A42 = Flatten(input_shape=(num_steps, 1))(A41)
+    A42 = Flatten(input_shape=(num_steps, 1))(A412)
     A5 = Dense(1, activation='sigmoid', name='A5')(A42)
     #Ok, we have our predicted value in A5, however, we can't glue it to the original values,
     #Tensorflow wants element of array to have the same dimmension
