@@ -187,7 +187,47 @@ class KerasBatchGenerator(object):
 
             yield (x, y)
             
-            
+
+def process_fxPro(name, ma_days):
+    orig = glob.glob(name)[0]
+    bars = []
+    closes = []
+    with open(orig, newline='') as csvfile:
+        csvreader = csv.reader(csvfile, delimiter='\t', quotechar='|')
+        for i, row in enumerate(csvreader):
+            if i > 0 and float(row[5]) > 0.0:           
+                open_p = float(row[1])
+                high = float(row[2])
+                low = float(row[3])
+                close = float(row[4])
+                closes.append(close)                    
+                if i == 1:
+                    max_p = open_p
+                    min_p = open_p
+                
+                
+                if i > ma_days + 1+10:
+                    #moving average for past X days
+                    s = 0
+
+                    for j in range(1, 1+ma_days):
+                        s += closes[-j]
+                    moving_avg = s / ma_days
+                    bars.append(np.array([open_p,high,low,close,moving_avg]))
+                    
+                    #For normalisation purposes
+                    if max([open_p,high,low,close]) > max_p:
+                        max_p = max([open_p,high,low,close])
+                    if min([open_p,high,low,close]) < min_p:
+                        min_p = min([open_p,high,low,close])
+
+    out = []
+    print(max_p, min_p)
+    for l in bars:
+        out.append(list(map(lambda x: x, l)))
+
+    return np.array(out)             
+    
 def process_original(name, ma_days=5):
     orig = glob.glob(name)[0]
     bars = []

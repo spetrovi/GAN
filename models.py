@@ -31,7 +31,7 @@ def define_generator(num_steps=5, num_params=5):
     B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
     C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
     merged = Model(inputs=[A1], outputs=[C])
-    merged.compile(loss=my_gMSE, optimizer='adam', metrics=[my_gMSE])        
+    merged.compile(loss=my_gMSE, optimizer='adam', metrics=[my_gMSE, my_gMAE_l, my_gMAE_h])        
 
     return merged
     
