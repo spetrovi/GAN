@@ -2,12 +2,11 @@ import csv
 import glob
 import numpy as np
 class KerasBatchGenerator(object):
-    def __init__(self, data, num_steps, batch_size, num_params, latent_dim, skip_step=1):
+    def __init__(self, data, num_steps, batch_size, num_params, skip_step=1):
         self.data = data
         self.num_steps = num_steps
         self.batch_size = batch_size
         self.num_params = num_params
-        self.latent_dim = latent_dim
         # this will track the progress of the batches sequentially through the
         # data set - once the data reaches the end of the data set it will reset
         # back to zero
