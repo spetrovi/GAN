@@ -11,10 +11,8 @@ def my_gMAE_l(y_true, y_pred):
         
     subs = tf.math.subtract(lows_pred, lows_real)
     _abs = tf.math.abs(subs)
- 
-    _sum = tf.math.reduce_sum(_abs)
    
-    gMAE_lows = tf.math.divide(_sum, tf.cast(tf.size(_abs), tf.float32))
+    gMAE_lows = tf.math.reduce_mean(subs)
     
     return gMAE_lows
     
@@ -28,10 +26,8 @@ def my_gMAE_h(y_true, y_pred):
         
     subs = tf.math.subtract(highs_pred, highs_real)
     _abs = tf.math.abs(subs)
- 
-    _sum = tf.math.reduce_sum(_abs)
    
-    gMAE_highs = tf.math.divide(_sum, tf.cast(tf.size(_abs), tf.float32))
+    gMAE_highs = tf.math.reduce_mean(subs)
     
     return gMAE_highs
     
@@ -45,9 +41,7 @@ def my_gMSE(y_true, y_pred):
 
     squares = tf.math.multiply(subs, subs)
 
-    xsum = tf.math.reduce_sum(squares)
-
-    gMSE = tf.math.divide(xsum, tf.cast(tf.size(squares), tf.float32))
+    gMSE = tf.math.reduce_mean(squares)
     return gMSE
     
 def my_dacc(y_true, y_pred):
@@ -65,9 +59,9 @@ def my_dacc(y_true, y_pred):
 #    tf.print(y_preds, summarize=-1)
 
     eqs = tf.math.equal(y_trues, y_preds)
-    eq_sum = tf.reduce_sum(tf.cast(eqs, tf.float32))
+    eqs = tf.cast(eqs, tf.float32)
     
-    return eq_sum/y_trues.shape[0]
+    return tf.math.reduce_mean(eqs)
 
 #y is in this format
 #It is a batch of ys we generate in generator
@@ -98,9 +92,8 @@ def my_dloss(y_true,y_pred):
     Xreal = Xreal + K.epsilon()
     
     log_real = tf.math.log(Xreal)
-    sum_real = tf.math.reduce_sum(log_real)
     
-    fin_real = tf.math.multiply(sum_real, -(1/y_true.shape[0]))
+    fin_real = tf.math.reduce_mean(log_real)
     
     
     #get indexes of fake y
@@ -114,11 +107,10 @@ def my_dloss(y_true,y_pred):
     sub_fake = sub_fake + K.epsilon()
 
     log_fake = tf.math.log(sub_fake)
-    sum_fake = tf.math.reduce_sum(log_fake)
     
-    fin_fake = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+    fin_fake = tf.math.reduce_mean(log_real)
 
-    return tf.math.subtract(fin_real, fin_fake)
+    return -fin_real - fin_fake
     
 def my_aloss(y_true,y_pred):
     
@@ -128,8 +120,12 @@ def my_aloss(y_true,y_pred):
     
     subs = tf.math.subtract(predx1, realx1)
     squares = tf.math.multiply(subs, subs)
-    xsum = tf.math.reduce_sum(squares)
-    gMSE = tf.math.multiply(xsum, 1/(y_true.shape[2]*y_true.shape[0]))
+    
+    #remove last column with Mean average
+    residual = tf.transpose(squares)[:-1]
+
+    #compute mean
+    gMSE = tf.math.reduce_mean(residual)
 
     #---------------gloss-------------------------------------------------#
     #We want to penalise the generator if it doesnt fool the discriminator
@@ -144,17 +140,11 @@ def my_aloss(y_true,y_pred):
     sub_fake = tf.math.subtract(1.0, Xfake)
     sub_fake_cor = tf.math.add(sub_fake, K.epsilon())
     log_fake = tf.math.log(sub_fake)
-    sum_fake = tf.math.reduce_sum(log_fake)
-    gloss = tf.math.multiply(sum_fake, 1/y_true.shape[0])
+    
+    gloss = tf.math.reduce_mean(log_fake)   
     
 
     #maybe gloss hyperparameter should be negative!
     h1 = 1
     h2 = 1
     return h1*gMSE + h2*gloss
-
-
-def my_mse(y_true,y_pred):
-    y_true = tf.transpose(y_true)[-1]
-    y_pred = tf.transpose(y_pred)[-1]
-    return K.mean(K.square(y_pred-y_true))
