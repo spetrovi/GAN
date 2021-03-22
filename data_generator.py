@@ -146,14 +146,11 @@ class KerasBatchGenerator(object):
                 
 
                 x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
+                
                 mean = np.mean(x_days)
                 std = np.std(x_days)
-#                predict_day = g_model.predict(np.array(([self.data[self.current_idx:self.current_idx + self.num_steps]])) )[0][-1]
                 predict_day = g_model.predict(np.array(([(x_days - mean) / std])))
-#                print('SOURCE DATA')
-#                print(np.array(([x_days])))
-#                print('Predicting')                
-#                print( (predict_day * std) + mean) 
+
                 predict_day = predict_day[0][-1]
                 norm_days = []
                 for d in x_days:
@@ -161,31 +158,18 @@ class KerasBatchGenerator(object):
 
                 x[i, :] = np.append(norm_days, [predict_day], 0)
                 
-                norm_days.append(self.data[self.current_idx + self.num_steps + 1])
+                true_day = self.data[self.current_idx + self.num_steps + 1]
+                
+                norm_days.append((true_day - mean) /std)
                 norm_days.append(np.zeros((self.num_params)))
+                
                 y[i, :] = norm_days
                 
                 
                 self.current_idx += self.skip_step
  
             yield (x, y)        
-            
-    def generate_eval(self):
-        x = np.zeros((self.batch_size, self.num_steps, self.num_params))
-        y = np.zeros((self.batch_size, self.num_steps+1, self.num_params))
 
-        while True:
-            for i in range(self.batch_size):
-                if self.current_idx + self.num_steps >= len(self.data):
-                    # reset the index back to the start of the data set
-                    self.current_idx = 0
-                x[i, :] = self.data[self.current_idx:self.current_idx + self.num_steps]                
-                y[i, :] = self.data[self.current_idx:self.current_idx + self.num_steps+1]
-
-                self.current_idx += self.skip_step
-
-            yield (x, y)
-            
 
 def process_fxPro(name, ma_days):
     orig = glob.glob(name)[0]
@@ -200,11 +184,7 @@ def process_fxPro(name, ma_days):
                 low = float(row[3])
                 close = float(row[4])
                 closes.append(close)                    
-                if i == 1:
-                    max_p = open_p
-                    min_p = open_p
-                
-                
+
                 if i > ma_days + 1+10:
                     #moving average for past X days
                     s = 0
@@ -212,20 +192,10 @@ def process_fxPro(name, ma_days):
                     for j in range(1, 1+ma_days):
                         s += closes[-j]
                     moving_avg = s / ma_days
-                    bars.append(np.array([open_p,high,low,close,moving_avg]))
-                    
-                    #For normalisation purposes
-                    if max([open_p,high,low,close]) > max_p:
-                        max_p = max([open_p,high,low,close])
-                    if min([open_p,high,low,close]) < min_p:
-                        min_p = min([open_p,high,low,close])
+                    bars.append(np.array([open_p,high,low,close,moving_avg]))                    
 
-    out = []
-    print(max_p, min_p)
-    for l in bars:
-        out.append(list(map(lambda x: x, l)))
 
-    return np.array(out)             
+    return np.array(bars)
     
 def process_original(name, ma_days=5):
     orig = glob.glob(name)[0]
