@@ -2,6 +2,7 @@ import numpy as np
 import random
 import tensorflow as tf
 from models import *
+from data_generator import *
 
 from functions import *
 def shuffle_inputs(X, y):
@@ -32,23 +33,42 @@ def denormalise(price, high=86.716, low=15.965):
 def save_for_plot(g_model, dataset, numsteps, name):
     lows_real = []
     lows_pred = []
-    for i in range(numsteps, len(dataset)-1):
-        recent_data = np.array([dataset[i-numsteps : i]])
-
-        mean = np.mean(recent_data)
-        std = np.std(recent_data)
-
-        #normalise
-        norm_r = (recent_data-mean)/std
-        prediction = g_model.predict(norm_r)
+    high_real = []
+    high_pred = []
+    batchsize = 250    
+    current_idx = 0
+    num_params = 9
     
-        #denormalise
-        prediction = mean + (prediction[0][-1] * std)
-    
-        # dataset[0:5] > indexes 0..4, next value is at dataset[5]
-        lows_real.append(dataset[i][2])
-        lows_pred.append(prediction[2])
+    for b in range(len(dataset)//batchsize):
+        x = np.zeros((batchsize, numsteps, num_params))
+        for i in range(batchsize):
+            x_days = dataset[current_idx : current_idx + numsteps]
+            y_days = dataset[current_idx : current_idx + numsteps + 1]
+            x[i, :] = x_days.copy()                    
+            high_real.append(y_days[-1][1])
+            lows_real.append(y_days[-1][2])
 
+            current_idx += 1
+
+        mean = np.mean(x)
+        std = np.std(x)
+        
+        x = (x - mean) / std
+        _min = np.abs(np.min(x))
+        
+        x = x + _min
+
+        prediction = g_model.predict(x)
+        prediction = mean + ((prediction - _min) * std)
+
+#        print(prediction)
+        
+        for seq in prediction:
+            lows_pred.append(seq[-1][1])
+            high_pred.append(seq[-1][2])
+
+        
+        
     #write to file for later analysis
     w = open(name, 'w')
     for val in lows_real:
@@ -56,7 +76,15 @@ def save_for_plot(g_model, dataset, numsteps, name):
     w.write('\n')
     for val in lows_pred:
         w.write(str(val) + ',')
+    w.write('\n')
+    for val in high_real:
+        w.write(str(val) + ',')
+    w.write('\n')
+    for val in high_pred:
+        w.write(str(val) + ',')
     w.close()
+    
+    
     
 def save_loss(losses, name='loss'):    
     w = open(name, 'w')
@@ -65,8 +93,8 @@ def save_loss(losses, name='loss'):
     w.close()
 
 
-def predict_recent(g_model, dataset):
-    recent_data = np.array([dataset[len(dataset)-5 : len(dataset)]])
+def predict_recent(g_model, dataset, numsteps):
+    recent_data = np.array([dataset[len(dataset)-numsteps : len(dataset)]])
     mean = np.mean(recent_data)
     std = np.std(recent_data)
 
@@ -81,9 +109,10 @@ def predict_recent(g_model, dataset):
     print('Predicted next day:')
     print(mean + (prediction*std))
     
-def save_all(g_model, d_model, name):
+def save_all(g_model, d_model, a_model, name):
     g_model.save(name + 'g_model')
     d_model.save(name + 'd_model')
+    d_model.save(name + 'a_model')    
 
 def load_all(name):
     g_model = tf.keras.models.load_model(name + 'g_model', compile=False)
@@ -91,7 +120,9 @@ def load_all(name):
     a_model = define_GAN(g_model, d_model)
     
     g_model.compile(loss=my_gMSE, optimizer='adam',  metrics=[my_gMSE, my_gMAE_l, my_gMAE_h])
-    d_model.compile(loss=my_dloss, optimizer='adam',  metrics=[my_dacc])
+    
+    opt = Adam(lr=0.006, beta_1=0.9)   
+    d_model.compile(loss=my_dloss, optimizer=opt,  metrics=[my_dacc])
     
     return g_model, d_model, a_model
     
@@ -121,4 +152,4 @@ def make_predictions(g_model, path_to_stocks, ma_days, num_steps, batch_size, nu
         print('Error for Lows: ' + str(g_MSE_lows*std))        
         print('Error for Highs: ' + str(g_MSE_highs*std))        
 
-        print('\n')    
+        print('\n')

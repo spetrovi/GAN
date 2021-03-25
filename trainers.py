@@ -10,11 +10,11 @@ def train_d_better(model, data_generator, g_model, epochs=1000):
     for i in range(epochs):
         #get a batch of real data
         #true_data_generator = KerasBatchGenerator(dataset, num_steps, batch_size, latent_dim, num_params, skip_step=num_steps)
-        data = next(data_generator.generate_for_dmodel(trues=True))
+        data = next(data_generator.generate_for_dmodel_real())
         X_real, y_real = data[0], data[1]
 
         #generate 'fake' examples
-        data = next(data_generator.generate_pred(g_model))
+        data = next(data_generator.generate_for_dmodel_fake(g_model))
         X_fake, y_fake = data[0], data[1]
 
         #update discriminator on fake samples
