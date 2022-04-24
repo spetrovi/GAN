@@ -5,7 +5,7 @@ from tensorflow.keras.optimizers import Adam
 from functions import *
 
 def define_generator(num_steps, num_params):    
-    A1 = Input(shape=(num_steps,num_params))
+    A1 = Input(shape=(num_steps, num_params))
 
     A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation='relu')(A1)
     A3 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation='relu')(A2)
@@ -22,7 +22,7 @@ def define_generator(num_steps, num_params):
     B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
     C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
     merged = Model(inputs=[A1], outputs=[C])
-    merged.compile(loss=my_gMSE, optimizer='adam', metrics=[my_gMSE, my_gMAE_l, my_gMAE_h])        
+    merged.compile(loss=my_gMSE_o_c, optimizer='adam', metrics=[my_gMSE, my_gMSE_o_c])        
 
     return merged
     
@@ -43,7 +43,7 @@ def define_discriminator(num_steps, num_params):
     A9 = tf.keras.layers.Reshape((1,num_params))(A8)
 
     B1 = tf.keras.layers.Lambda(lambda x: x)(A1)
-    C = tf.keras.layers.Concatenate(axis=1)([B1, A6])
+    C = tf.keras.layers.Concatenate(axis=1)([B1, A9])
     
     merged = Model(inputs=[A1], outputs=[C])
     opt = Adam(lr=0.006, beta_1=0.9)
@@ -91,5 +91,5 @@ def define_GAN(g_model, d_model):
     #compile
     #maybe this Adam settings is not good
     opt = Adam(lr=0.006, beta_1=0.9)
-    model.compile(loss=my_aloss, optimizer=opt)
+    model.compile(loss=o_h_l_c_aloss, optimizer=opt)
     return model

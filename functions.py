@@ -27,6 +27,31 @@ def my_gMAE_h(y_true, y_pred):
    
     gMAE_highs = tf.math.reduce_mean(subs)
     return gMAE_highs
+
+def my_gMSE_o_c(y_true, y_pred):
+    #gMSE
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+
+    opens_real = tf.transpose(realx1)[0]
+    opens_pred = tf.transpose(predx1)[0]
+
+    subs_opens = tf.math.subtract(opens_real, opens_pred)
+
+    squares_opens = tf.math.multiply(subs_opens, subs_opens)
+
+    gMSE_opens = tf.math.reduce_mean(squares_opens)
+    
+    closes_real = tf.transpose(realx1)[3]
+    closes_pred = tf.transpose(predx1)[3]
+
+    subs_closes = tf.math.subtract(closes_real, closes_pred)
+
+    squares_closes = tf.math.multiply(subs_closes, subs_closes)
+
+    gMSE_closes = tf.math.reduce_mean(squares_closes)
+    
+    return gMSE_opens + gMSE_closes
     
 def my_gMSE(y_true, y_pred):
 
@@ -107,6 +132,50 @@ def my_dloss(y_true,y_pred):
     fin_fake = tf.math.reduce_mean(log_fake)
 
     return -fin_real - fin_fake
+
+def o_h_l_c_aloss(y_true,y_pred):
+    #gMSE
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-2]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-2]
+    
+    subs = tf.math.subtract(predx1, realx1)
+    squares = tf.math.multiply(subs, subs)
+    
+    transposed = tf.transpose(squares)
+    
+    
+    opens = tf.math.reduce_mean(transposed[0])
+    highs = tf.math.reduce_mean(transposed[1])
+    lows = tf.math.reduce_mean(transposed[2])
+    closes = tf.math.reduce_mean(transposed[3])    
+    
+    
+    
+    gMSE = (closes + highs + lows + opens) / 4
+    
+    #---------------gloss-------------------------------------------------#
+    #We want to penalise the generator if it doesnt fool the discriminator
+    #In case the discriminator outputs 0 (or number close to 0), it thinks the data is faked
+    #if it think it's fake, we will compute logarithm (1), which is 0
+    #if it thinks its real(0.9), we will compute logarithm (0.1), which is -2.3
+    #Therefore, the more we fool the discriminator, the more we decrease the loss
+    #--------------gloss--------------------------------------------------#
+    y_preds = tf.transpose(y_pred, perm=[1,0,2])[-1]
+
+    Xfake = tf.transpose(y_preds)[0]    
+    sub_fake = tf.math.subtract(1.0, Xfake)
+    sub_fake_cor = tf.math.add(sub_fake, K.epsilon())
+    log_fake = tf.math.log(sub_fake_cor)
+    
+    gloss = tf.math.reduce_mean(log_fake)   
+
+    #gMSE is around -1 to 1
+    #gloss is -17 to 0
+    #we should scale so its of the same importance
+
+    h1 = 1
+    h2 = 1
+    return h1*gMSE + h2*gloss
     
 def my_aloss(y_true,y_pred):
     #gMSE

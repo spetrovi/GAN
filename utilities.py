@@ -29,7 +29,63 @@ def normalise(price, high, low):
 #86.716 15.965
 def denormalise(price, high=86.716, low=15.965):
     return price * (high - low) + low
-    
+ 
+def analyse(g_model, dataset, numsteps, name):
+    batchsize = 250    
+    num_params = 9
+
+    current_idx = 0
+
+    result = {'open_real':[], 'open_pred':[], 'close_real':[], 'close_pred':[]
+    }
+    for b in range(len(dataset)//batchsize):
+        x = np.zeros((batchsize, numsteps, num_params))
+        for i in range(batchsize):
+            x_days = dataset[current_idx : current_idx + numsteps]
+            y_days = dataset[current_idx : current_idx + numsteps + 1]
+            x[i, :] = x_days.copy()                    
+            result['open_real'].append(y_days[-1][0])
+            result['close_real'].append(y_days[-1][3])
+
+            current_idx += 1
+
+        mean = np.mean(x)
+        std = np.std(x)
+        
+        x = (x - mean) / std
+        _min = np.abs(np.min(x))
+        
+        x = x + _min
+
+        prediction = g_model.predict(x)
+        prediction = mean + ((prediction - _min) * std)
+
+#        print(prediction)
+        
+        for seq in prediction:
+            result['open_pred'].append(seq[-1][0])
+            result['close_pred'].append(seq[-1][3])
+
+    signal_correct = 0
+    signal_incorrect = 0
+    all_days = len(result['open_pred'])
+    correct_pips = 0
+    incorrect_pips = 0
+    for i in range(all_days):
+        if (result['open_real'][i] < result['close_real'][i]) and (result['open_pred'][i] < result['close_pred'][i]):
+            signal_correct += 1
+            correct_pips += result['close_real'][i] - result['open_real'][i]
+        elif (result['open_real'][i] > result['close_real'][i]) and (result['open_pred'][i] > result['close_pred'][i]):
+            signal_correct += 1
+            correct_pips += result['open_real'][i] - result['close_real'][i]
+        else:
+            signal_incorrect += 1
+            incorrect_pips += abs(result['open_real'][i] - result['close_real'][i])
+    print('Correct, all, ratio', signal_correct, all_days, signal_correct/all_days)
+    print('Winning pips: ', correct_pips)
+    print('Losing pips: ', incorrect_pips)
+    print('Profit pips: ', int(correct_pips - incorrect_pips))
+
 def save_for_plot(g_model, dataset, numsteps, name):
     lows_real = []
     lows_pred = []
