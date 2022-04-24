@@ -26,6 +26,28 @@ def define_generator(num_steps, num_params):
 
     return merged
     
+def define_generator_OHLC(num_steps, num_params):    
+    A1 = Input(shape=(num_steps, num_params))
+
+    A2 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation='relu')(A1)
+    A3 = LSTM(num_params, return_sequences=True, input_shape=(num_steps,num_params), activation='relu')(A2)
+    A4 = Dropout(0.0)(A3)
+
+    A5 = TimeDistributed(Dense(num_params))(A4)
+    
+    A6 = Flatten(input_shape=(num_steps, num_params))(A5)
+
+    A7 = Dense(4)(A6)
+
+    A8 = tf.keras.layers.Reshape((1, 4))(A7)
+
+    B1 = tf.keras.layers.Lambda(lambda x: x, name='B1')(A1)
+    C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
+    merged = Model(inputs=[A1], outputs=[C])
+    merged.compile(loss=my_gMSE_o_c, optimizer='adam', metrics=[my_gMSE, my_gMSE_o_c])        
+
+    return merged    
+    
 
 def define_discriminator(num_steps, num_params):
     num_steps = num_steps + 1
