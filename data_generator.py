@@ -28,20 +28,15 @@ class KerasBatchGenerator(object):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
 
-                x_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]                
+                x_days = y_days
 
                 x[i, :] = x_days.copy()                    
                 y[i, :] = x_days.copy()
                 
-                self.current_idx += self.skip_step
-
-
-            #normalise
-            mean = np.mean(x)
-            std = np.std(x)
-            x = (x - mean) / std
-            _min = np.abs(np.min(x))
-            x = x + _min
+#                self.current_idx += self.skip_step
+                #move cursor to different point in data
+                self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)       
 
             #add row of zeroes to every sequence
             y = list(x.copy())
@@ -49,7 +44,7 @@ class KerasBatchGenerator(object):
                 y[i] = np.vstack((y[i], np.ones(self.num_params)))
 
             #move cursor to different point in data                        
-            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)       
+#            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)       
             yield (x, y)
 
     #Generate for training d model
@@ -63,26 +58,18 @@ class KerasBatchGenerator(object):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
                 
-                x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
-                y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]                
+                y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                x_days = y_days[:-1]
 
                 x_for_g[i, :] = x_days.copy()                    
                 y[i, :] = y_days.copy()
                 
-                self.current_idx += self.skip_step
-                
-            #normalise
-            mean = np.mean(y)
-            std = np.std(y)
-            
-            y = (y - mean) / std
-            _min = np.abs(np.min(y))
-            y = y + _min
-            
-            x_for_g = (x_for_g - mean) / std
-            x_for_g = x_for_g + _min
-            
+#                self.current_idx += self.skip_step
+                #move cursor to different point in data
+                self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
+                            
             x = g_model.predict(x_for_g)
+
 
             #add row of zeroes
             y = list(y)
@@ -90,7 +77,7 @@ class KerasBatchGenerator(object):
                 y[i] = np.vstack((y[i], np.zeros(self.num_params)))
 
             #move cursor to different point in data
-            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
+#            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
             yield (x, y)
             
     def generate_for_amodel(self):
@@ -102,27 +89,16 @@ class KerasBatchGenerator(object):
                 if self.current_idx + self.num_steps + 1>= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
-
-                x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
+                
                 y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                x_days = y_days[:-1]
 
                 x[i, :] = x_days.copy()
                 y[i, :] = y_days.copy()
                 
-                self.current_idx += self.skip_step
-
-            #normalise
-            mean = np.mean(y)
-            std = np.std(y)
-            
-            y = (y - mean) / std
-            _min = np.abs(np.min(y))
-            y = y + _min
-            
-            x = (x - mean) / std
-            x = x + _min            
-            
-
+#                self.current_idx += self.skip_step
+                #move cursor to different point in data
+                self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
             
             #add row of zeroes
             y = list(y)
@@ -132,7 +108,7 @@ class KerasBatchGenerator(object):
             y = np.array(y)
             x = np.array(x)
             #move cursor to different point in data
-            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
+#            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
             yield (x, y)            
             
 
@@ -148,36 +124,25 @@ class KerasBatchGenerator(object):
                 if self.current_idx + self.num_steps >= len(self.data):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
-                x_days = self.data[self.current_idx:self.current_idx + self.num_steps]
+
                 y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                x_days = y_days[:-1]
                 
                 x[i, :] = x_days.copy()
                 y[i, :] = y_days.copy()
 
                 self.current_idx += self.skip_step
                 
-            #normalise
-            mean = np.mean(y)
-            std = np.std(y)
-            
-            y = (y - mean) / std
-            _min = np.abs(np.min(y))
-            y = y + _min
-            
-            x = (x - mean) / std
-            x = x + _min            
-            
             self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
             yield (x, y)
             
   
 
 
-def process_fxPro(name, ma_days):
+def process_fxPro(name, ma_days, future_days=1):
     print(name)
     orig = glob.glob(name)[0] 
     bars = []
-    volumes = []
     with open(orig, newline='') as csvfile:
         csvreader = csv.reader(csvfile, delimiter='\t', quotechar='|')
         for i, row in enumerate(csvreader):
@@ -186,46 +151,63 @@ def process_fxPro(name, ma_days):
                 high = float(row[2])
                 low = float(row[3])
                 close = float(row[4])
-                bars.append([open_p, high, low, close])
-                volumes.append(float(row[5]))
+                tickvol = float(row[5])
+                vol = float(row[6])                
+                bars.append([open_p, high, low, close, tickvol, vol])
 
     #compute indicators
     out = []
-    for i in range(ma_days, len(bars)):
+    for i in range(ma_days, len(bars)-future_days):
         row = bars[i].copy()
+#        row.append(volumes[i])
 
-
+#        future_close_mean = np.mean(np.transpose(bars[i: i + future_days])[3])
+#s        row.append(future_close_mean)
         # dataset[0:5] > indexes 0..4, next value is at dataset[5]
         #mean average
-        ma = np.mean(bars[i-ma_days:i + 1])
-        row.append(ma)
-
+#        ma = np.mean(bars[i-ma_days:i + 1])
+#        row.append(ma)
         t_days = np.transpose(bars[i-ma_days:i + 1])
+        
+        #mean close
+        close_mean = np.mean(t_days[3])
+        row.append(close_mean)
         
         #mean high
         h_mean = np.mean(t_days[1])
-        row.append(h_mean)
+#        row.append(h_mean)
 
         #max high
         h_max = np.max(t_days[1])
-        row.append(h_max)
+#        row.append(h_max)
         
         #mean low
         l_mean = np.mean(t_days[2])
-        row.append(l_mean)
+#        row.append(l_mean)
         
         #min low
         l_min = np.min(t_days[2])
-        row.append(l_min)
+#        row.append(l_min)
         #append next days' open
-#        row.append(bars[i+1][0])
+        row.append(bars[i+1][0])
         
         #volume
 #        row.append(volumes[i])
 
         out.append(row)
 
-    return name,  np.array(out)
+#    print(out)
+    #If the features are wildly different, we want to normalise per-fefature
+    features = np.transpose(out)
+    norm_features = []
+    norm_stats = []
+    for f in features:
+        mean = np.mean(f)
+        std = np.std(f)
+        norm_stats.append((mean,std))
+        norm_features.append((f - mean) / std)    
+    out = np.transpose(norm_features)
+    return name, out, norm_stats
     
 def process_fxPro_hourly(name, ma_days):
     print(name)
@@ -252,25 +234,25 @@ def process_fxPro_hourly(name, ma_days):
         # dataset[0:5] > indexes 0..4, next value is at dataset[5]
         #mean average
         ma = np.mean(bars[i-ma_days:i + 1])
-        row.append(ma)
+#        row.append(ma)
 
         t_days = np.transpose(bars[i-ma_days:i + 1])
         
         #mean high
         h_mean = np.mean(t_days[1])
-        row.append(h_mean)
+#        row.append(h_mean)
 
         #max high
         h_max = np.max(t_days[1])
-        row.append(h_max)
+#        row.append(h_max)
         
         #mean low
         l_mean = np.mean(t_days[2])
-        row.append(l_mean)
+#        row.append(l_mean)
         
         #min low
         l_min = np.min(t_days[2])
-        row.append(l_min)
+#        row.append(l_min)
         
         #append next days' open
 #        row.append(bars[i+1][0])

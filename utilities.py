@@ -1,5 +1,5 @@
 import numpy as np
-import random
+import random, json
 import tensorflow as tf
 from models import *
 from data_generator import *
@@ -10,16 +10,11 @@ def shuffle_inputs(X, y):
     X_new = np.zeros((len(X), len(X[0]), len(X[0][0])))
     y_new = []
 
-    
     positions = [i for i in range(len(X))]
-
     random.shuffle(positions)
-
     for i, pos in enumerate(positions):
         X_new[i,:] = X[pos]
-        y_new.append(y[pos])
-        
-        
+        y_new.append(y[pos])        
     return X_new, np.array(y_new)
     
 #Normalise prices to [0,1] interval
@@ -29,20 +24,84 @@ def normalise(price, high, low):
 #86.716 15.965
 def denormalise(price, high=86.716, low=15.965):
     return price * (high - low) + low
+
+
+def real_prediction(g_model, dataset, numsteps, name, num_params):
+    batchsize = 100
+    x = np.zeros((batchsize, numsteps, num_params))
+    y = np.zeros((batchsize, numsteps + 1, num_params))
+    open_real = []
+    open_pred = []
+    close_real = []
+    close_pred = []
+    high_real = []
+    low_real = []
+    
+    for i in range(batchsize):
+        current_idx = random.randint(0, len(dataset)-numsteps-1)
+        x_days = dataset[current_idx : current_idx + numsteps]
+        y_days = dataset[current_idx : current_idx + numsteps + 1]
+        x[i, :] = x_days.copy()
+        y[i, :] = y_days.copy()
+        open_real.append(y_days[-1][0])
+        high_real.append(y_days[-1][1])
+        low_real.append(y_days[-1][2])
+        close_real.append(y_days[-1][3])
+
+
+#    with open('sample1.json','w+') as _file:
+#        json.dump((open_real, high_real, low_real, close_real), _file)
+        
+    mean = np.mean(x)
+    std = np.std(x)
+    x = (x - mean) / std
+    
+    prediction = g_model.predict(x)
+    prediction = mean + (prediction * std)
+    for day in prediction:
+        open_pred.append(day[-1][0])
+        close_pred.append(day[-1][3])
  
-def analyse(g_model, dataset, numsteps, name):
-    batchsize = 250    
-    num_params = 9
+        
+    signal_correct = 0
+    signal_incorrect = 0
+    all_days = len(open_pred)
+    correct_pips = 0
+    incorrect_pips = 0
+    
+    new_profit_pips = 0
+    for i in range(all_days - 5):
+        if (open_real[i] < close_real[i]) and (open_pred[i] < close_pred[i]):
+            signal_correct += 1
+            correct_pips += close_real[i] - open_real[i]
+        elif (open_real[i] > close_real[i]) and (open_pred[i] > close_pred[i]):
+            signal_correct += 1
+            correct_pips += open_real[i] - close_real[i]
+        else:
+            signal_incorrect += 1
+            incorrect_pips += abs(open_real[i] - close_real[i])
+            
 
+        
+    print(name)
+    print('Correct, all, ratio', signal_correct, all_days, signal_correct/all_days)
+    print('Winning pips: ', correct_pips)
+    print('Losing pips: ', incorrect_pips)
+    print('Profit pips: ', int(correct_pips - incorrect_pips))
+
+          
+def analyse(g_model, dataset, numsteps, name, num_params):
+    batchsize = 10
     current_idx = 0
-
-    result = {'open_real':[], 'open_pred':[], 'close_real':[], 'close_pred':[]
-    }
+    result = {'open_real':[], 'open_pred':[], 'close_real':[], 'close_pred':[]}
+    
     for b in range(len(dataset)//batchsize):
         x = np.zeros((batchsize, numsteps, num_params))
         for i in range(batchsize):
             x_days = dataset[current_idx : current_idx + numsteps]
             y_days = dataset[current_idx : current_idx + numsteps + 1]
+            print('Xdays', x_days)
+            print('Ydays',y_days)
             x[i, :] = x_days.copy()                    
             result['open_real'].append(y_days[-1][0])
             result['close_real'].append(y_days[-1][3])
@@ -53,15 +112,14 @@ def analyse(g_model, dataset, numsteps, name):
         std = np.std(x)
         
         x = (x - mean) / std
-        _min = np.abs(np.min(x))
+#        _min = np.abs(np.min(x))
         
-        x = x + _min
+#        x = x + _min
 
         prediction = g_model.predict(x)
-        prediction = mean + ((prediction - _min) * std)
-
-#        print(prediction)
-        
+#        prediction = mean + ((prediction - _min) * std)
+        prediction = mean + (prediction * std)
+        print('Prediction', prediction)
         for seq in prediction:
             result['open_pred'].append(seq[-1][0])
             result['close_pred'].append(seq[-1][3])
@@ -81,6 +139,7 @@ def analyse(g_model, dataset, numsteps, name):
         else:
             signal_incorrect += 1
             incorrect_pips += abs(result['open_real'][i] - result['close_real'][i])
+    print(name)
     print('Correct, all, ratio', signal_correct, all_days, signal_correct/all_days)
     print('Winning pips: ', correct_pips)
     print('Losing pips: ', incorrect_pips)
@@ -168,7 +227,7 @@ def predict_recent(g_model, dataset, numsteps):
 def save_all(g_model, d_model, a_model, name):
     g_model.save(name + 'g_model')
     d_model.save(name + 'd_model')
-    d_model.save(name + 'a_model')    
+    a_model.save(name + 'a_model')
 
 def load_all(name):
     g_model = tf.keras.models.load_model(name + 'g_model', compile=False)
