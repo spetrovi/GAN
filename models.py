@@ -24,7 +24,7 @@ def define_generator(num_steps, num_params, opt):
     C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
     merged = Model(inputs=[A1], outputs=[C])
 #    opt = Adam(lr=0.001, beta_1=0.999)    
-    merged.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE]) 
+    merged.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE, openMAE, highMAE, lowMAE, closeMAE, nextOpenMAE]) 
     return merged
     
 def define_generator_OHLC(num_steps, num_params):    
@@ -88,7 +88,7 @@ def generator_orig(num_steps, num_params, opt):
     C = tf.keras.layers.Concatenate(axis=1)([B1, A8])
     merged = Model(inputs=[A1], outputs=[C])
 #    opt = Adam(lr=0.001, beta_1=0.999)
-    merged.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE])
+    merged.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE, openMAE, highMAE, lowMAE, closeMAE, nextOpenMAE]) 
     return merged 
 
 def discriminator_orig(num_steps, num_params, opt):

@@ -26,8 +26,56 @@ def my_gMAE(y_true, y_pred):
     gMAE = tf.math.reduce_mean(_abs)
     return gMAE
     
-   
+def openMAE(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    reals = tf.transpose(realx1)[0]
+    preds = tf.transpose(predx1)[0]
+    subs = tf.math.subtract(preds, reals)
+    _abs = tf.math.abs(subs)
+    gMAE = tf.math.reduce_mean(_abs)
+    return gMAE
+    
+def highMAE(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    reals = tf.transpose(realx1)[1]
+    preds = tf.transpose(predx1)[1]
+    subs = tf.math.subtract(preds, reals)
+    _abs = tf.math.abs(subs)
+    gMAE = tf.math.reduce_mean(_abs)
+    return gMAE   
 
+def lowMAE(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    reals = tf.transpose(realx1)[2]
+    preds = tf.transpose(predx1)[2]
+    subs = tf.math.subtract(preds, reals)
+    _abs = tf.math.abs(subs)
+    gMAE = tf.math.reduce_mean(_abs)
+    return gMAE
+
+def closeMAE(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    reals = tf.transpose(realx1)[3]
+    preds = tf.transpose(predx1)[3]
+    subs = tf.math.subtract(preds, reals)
+    _abs = tf.math.abs(subs)
+    gMAE = tf.math.reduce_mean(_abs)
+    return gMAE
+
+def nextOpenMAE(y_true, y_pred):
+    predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]
+    realx1 = tf.transpose(y_true, perm=[1,0,2])[-1]
+    reals = tf.transpose(realx1)[5]
+    preds = tf.transpose(predx1)[5]
+    subs = tf.math.subtract(preds, reals)
+    _abs = tf.math.abs(subs)
+    gMAE = tf.math.reduce_mean(_abs)
+    return gMAE
+    
 def my_gMSE_o_c(y_true, y_pred):
     #gMSE
     predx1 = tf.transpose(y_pred, perm=[1,0,2])[-1]

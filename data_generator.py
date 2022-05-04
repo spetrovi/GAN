@@ -28,7 +28,8 @@ class KerasBatchGenerator(object):
                     # reset the index back to the start of the data set
                     self.current_idx = 0
 
-                y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]                
+                y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]     
+                y_days, _, _ = norm_MeanStd(y_days)                       
                 x_days = y_days
 
                 x[i, :] = x_days.copy()                    
@@ -59,6 +60,7 @@ class KerasBatchGenerator(object):
                     self.current_idx = 0
                 
                 y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                y_days, _, _ = norm_MeanStd(y_days)               
                 x_days = y_days[:-1]
 
                 x_for_g[i, :] = x_days.copy()                    
@@ -91,6 +93,7 @@ class KerasBatchGenerator(object):
                     self.current_idx = 0
                 
                 y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+                y_days, _, _ = norm_MeanStd(y_days)
                 x_days = y_days[:-1]
 
                 x[i, :] = x_days.copy()
@@ -126,18 +129,34 @@ class KerasBatchGenerator(object):
                     self.current_idx = 0
 
                 y_days = self.data[self.current_idx:self.current_idx + self.num_steps + 1]
+
+                y_days, _, _ = norm_MeanStd(y_days)
+
                 x_days = y_days[:-1]
+
+
                 
                 x[i, :] = x_days.copy()
                 y[i, :] = y_days.copy()
 
-                self.current_idx += self.skip_step
-                
-            self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)
+                self.current_idx = random.randint(0, len(self.data)-self.num_steps+1)                                    
             yield (x, y)
-            
-  
 
+    #x is array of days
+    #If the features are wildly different, we want to normalise per-category
+    #We have price, vol, tickvol
+def norm_MeanStd(x):
+    features = np.transpose(x)
+    price_features = np.vstack((features[0], features[1], features[2], features[3], features[-2], features[-1]))
+    mean_price = np.mean(price_features)
+    std_price = np.std(price_features)
+    result = (price_features - mean_price) / std_price
+    
+    mean = np.mean(features[4])
+    std = np.std(features[4])
+    result = np.vstack((result, (features[4] - mean) / std))
+
+    return np.transpose(result), mean_price, std_price
 
 def process_fxPro(name, ma_days, future_days=1):
     print(name)
@@ -153,7 +172,7 @@ def process_fxPro(name, ma_days, future_days=1):
                 close = float(row[4])
                 tickvol = float(row[5])
                 vol = float(row[6])                
-                bars.append([open_p, high, low, close, tickvol, vol])
+                bars.append([open_p, high, low, close, tickvol])
 
     #compute indicators
     out = []
@@ -170,8 +189,8 @@ def process_fxPro(name, ma_days, future_days=1):
         t_days = np.transpose(bars[i-ma_days:i + 1])
         
         #mean close
-        close_mean = np.mean(t_days[3])
-        row.append(close_mean)
+        ohlc_mean = np.mean(np.stack([t_days[0], t_days[1], t_days[2], t_days[3]]))
+        row.append(ohlc_mean)
         
         #mean high
         h_mean = np.mean(t_days[1])
@@ -197,17 +216,18 @@ def process_fxPro(name, ma_days, future_days=1):
         out.append(row)
 
 #    print(out)
-    #If the features are wildly different, we want to normalise per-fefature
-    features = np.transpose(out)
-    norm_features = []
-    norm_stats = []
-    for f in features:
-        mean = np.mean(f)
-        std = np.std(f)
-        norm_stats.append((mean,std))
-        norm_features.append((f - mean) / std)    
-    out = np.transpose(norm_features)
-    return name, out, norm_stats
+
+    #If the features are wildly different, we want to normalise per-feaature
+#    features = np.transpose(out)
+#    norm_features = []
+#    norm_stats = []
+#    for f in features:
+#        mean = np.mean(f)
+#        std = np.std(f)
+#        norm_stats.append((mean,std))
+#        norm_features.append((f - mean) / std)    
+#    out = np.transpose(norm_features)
+    return name, out#, norm_stats
     
 def process_fxPro_hourly(name, ma_days):
     print(name)

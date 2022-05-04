@@ -8,11 +8,24 @@ import tensorflow as tf
 from datetime import datetime
 import matplotlib.pyplot as plt
 from utilities import analyse, real_prediction
-from data_generator import process_fxPro, KerasBatchGenerator
-from functions import my_dacc, my_dloss,my_gMSE,my_gMSE_o_c, my_mDir,my_gMAE
+from data_generator import process_fxPro, norm_MeanStd, KerasBatchGenerator
+from functions import my_dacc, my_dloss,my_gMSE,my_gMSE_o_c, my_mDir,my_gMAE, openMAE, highMAE, lowMAE, closeMAE, nextOpenMAE
 from tensorflow.keras.optimizers import Adam
 
-
+def normalise(y_days):
+    features = np.transpose(y_days)
+    price_features = np.vstack((features[0], features[1], features[2], features[3], features[-2], features[-1]))
+    mean_price = np.mean(price_features)
+    std_price = np.std(price_features)
+    y_days = (price_features - mean_price) / std_price
+            
+    mean_tick = np.mean(features[4])
+    std_tick = np.std(features[4])
+    y_days = np.vstack((y_days, (features[4] - mean_tick) / std_tick))
+            
+    y_days = np.transpose(y_days)
+    
+    return y_days, mean_price, std_price
 class GAN():
     def __init__(self, g_model, d_model, num_steps, num_params, ma_days, batch_size, opt):
         self.g_model = g_model
@@ -36,11 +49,11 @@ class GAN():
             #Lets use data from different stock every epoch
             data_generator = random.choice(self.data_generators)
             print('Evaluating Generator')
-            g_loss, _ = self.g_model.evaluate(data_generator.generate_for_gmodel(), steps=50)
+            g_loss, _, _, _, _, _, _ = self.g_model.evaluate(data_generator.generate_for_gmodel(), steps=50)
             g_mse.append(g_loss)
             print('Training Discriminator')
             data_generator = random.choice(self.data_generators)
-            d_batch_loss, d_batch_acc = self.train_discriminator(data_generator, epochs=200)
+            d_batch_loss, d_batch_acc = self.train_discriminator(data_generator, epochs=100)
             #discriminator too good, we ned to increase adversary training
             if np.mean(d_batch_acc) > 0.9:
                 gan_batch_size = 300
@@ -96,9 +109,9 @@ class GAN():
 #       stock_paths = glob.glob('./data/forex_since2020/*') + glob.glob('./data/majors_since2020/*')
        stock_paths = glob.glob('./data/majors_since2020/*')
        for stock in stock_paths:
-           name, dataset, norm_stats = process_fxPro(stock, self.ma_days)
+           name, dataset = process_fxPro(stock, self.ma_days)
            self.data_generators.append(KerasBatchGenerator(dataset, num_steps, batch_size, num_params, skip_step=1, name=name))
-           self.data_sets.append((name, dataset, norm_stats))
+           self.data_sets.append((name, dataset))
 
     def save_models(self):
         self.g_model.save(self.result_path + 'g_model')
@@ -134,10 +147,10 @@ class GAN():
 #            real_prediction(self.g_model, dataset, self.num_steps, name, self.num_params)
 
     def all_stocks(self):
-        for name, dataset, norm_stats in self.data_sets:
-            self.real_prediction(name, dataset, norm_stats)
+        for name, dataset in self.data_sets:
+            self.real_prediction(name, dataset)
 
-    def real_prediction(self, name, dataset, norm_stats, time_size = 365):
+    def real_prediction(self, name, dataset, time_size = 30):
         batchsize = time_size
         num_days = self.num_steps
         x = np.zeros((batchsize, num_days, self.num_params))
@@ -147,48 +160,51 @@ class GAN():
         high_real = []
         low_real = []
         ma5_real = []
+        futureopen_real = []
+        means = []
+        stds = []
     
+        index = random.randint(0,len(dataset) - batchsize - num_days)
         for i in range(batchsize):
-            index = len(dataset) - batchsize - num_days + i 
+            index +=1
             y_days = dataset[index : index + num_days + 1]
-            
-            x_days = y_days[:-1]
-            x[i, :] = x_days.copy()
-            
-            y_days = np.transpose(y_days)
-            denorm_y = []
-            for i, f in enumerate(y_days):
-                mean, std = norm_stats[i]
-                denorm_y.append((mean + (f * std)))
-            ma5_real.append(np.mean(denorm_y[:4]))
-            y_days = np.transpose(denorm_y)
+
             open_real.append(y_days[-1][0])
             high_real.append(y_days[-1][1])
             low_real.append(y_days[-1][2])
             close_real.append(y_days[-1][3])
-        
-        prediction = self.g_model.predict(x)
-        d_prediction = self.d_model.predict(prediction)
 
-        d_prediction = np.transpose(d_prediction)[-1][0]
-        prediction = np.transpose(prediction)
-        denorm_prediction = []
-        
-        for i, f in enumerate(prediction):
-            mean, std = norm_stats[i]
-            denorm_prediction.append(mean + (f * std))
+            
+            #Normalisation process
+            x_days, mean_price, std_price = norm_MeanStd(y_days[:-1])
+            means.append(mean_price)
+            stds.append(std_price)
+            #End of normalisation
+            
+            x[i, :] = x_days.copy()
 
-        prediction = np.transpose(denorm_prediction)
-    
+        prediction = g_model.predict(x)
+        d_prediction = d_model.predict(prediction)
+
         open_pred = []
         close_pred = []
         low_pred = []
         high_pred = []
-        for day in prediction:
+        futureopen_pred = []
+        disc_pred = []
+        
+        for i, day in enumerate(prediction):
+            #denorm process
+            features = np.transpose(day)
+            price_features = np.vstack((features[0], features[1], features[2], features[3], features[4], features[5]))
+            day = np.transpose((price_features * stds[i]) + means[i])
+
             open_pred.append(day[-1][0])
             high_pred.append(day[-1][1])
             low_pred.append(day[-1][2])
             close_pred.append(day[-1][3])
+            futureopen_pred.append(day[-1][5])
+            disc_pred.append(d_prediction[i][-1][0])
            
         dates = np.arange(batchsize)
     
@@ -199,13 +215,18 @@ class GAN():
         ax.hlines(open_real, dates - OC_offset - day_offset , dates - day_offset, color='blue')
         ax.hlines(close_real, dates + OC_offset- day_offset , dates - day_offset, color='blue')
     
-        categories = (d_prediction > 0.75).astype(int)
+        categories = (np.array(disc_pred) > 0.65).astype(int)
 
         colormap = np.array(['yellow', 'green'])
     
-        ax.vlines(dates + day_offset, low_pred, high_pred, color=colormap[categories])
-        ax.hlines(open_pred, dates - OC_offset + day_offset , dates + day_offset, color=colormap[categories])
-        ax.hlines(close_pred, dates + OC_offset + day_offset, dates + day_offset, color=colormap[categories])
+        ax.vlines(dates + day_offset, low_pred, high_pred, color='green')#colormap[categories])
+        ax.hlines(open_pred, dates - OC_offset + day_offset , dates + day_offset, color='green')#colormap[categories])
+        ax.hlines(close_pred, dates + OC_offset + day_offset, dates + day_offset, color='green')#colormap[categories])
+        
+        futureopen_pred = [futureopen_pred[-1]] + futureopen_pred[:-1]
+        
+#        ax.scatter(dates, futureopen_pred,color='red')#colormap[categories])
+        
         ax.autoscale_view()
         ax.grid()
         plt.savefig(self.result_path+name.split('/')[-1]+'_chart.png')
@@ -219,37 +240,37 @@ class GAN():
         #IF mean of predicted day is above mean of the last X days
         #   Buy on Open and exit on Close
         #   If incorrect, take -50 profit 
-        for i in range(all_days - 1 -1):
-            mean_of_predicted = low_pred[i+1] + ((high_pred[i+1] - low_pred[i+1]) / 2)
-            if ma5_real[i] < mean_of_predicted:
+#        for i in range(all_days - 1 -1):
+ #           mean_of_predicted = low_pred[i+1] + ((high_pred[i+1] - low_pred[i+1]) / 2)
+  #          if ma5_real[i] < mean_of_predicted:
 #                print('Ma5 Closes: ',ma5_real[i])
  #               print('Mean of predicted: ', mean_of_predicted)
   #              print('Next day: ', open_real[i+1], high_real[i+1], low_real[i+1], close_real[i+1])            
-                if close_real[i+2] > open_real[i+1]:
+   #             if close_real[i+2] > open_real[i+1]:
    #                 print('Good guess!!!')
-                    signal_correct += 1
-                    profit_pips += close_real[i+2] - open_real[i+1]
-                else: #actual price went lower
-                    signal_incorrect += 1
-                    if open_real[i+1] - close_real[i+2] > 50:                    
-                        profit_pips -= 50
-                    else:
-                        profit_pips -= open_real[i+1] - close_real[i+2]
+    #                signal_correct += 1
+     #               profit_pips += close_real[i+2] - open_real[i+1]
+      #          else: #actual price went lower
+       #             signal_incorrect += 1
+        #            if open_real[i+1] - close_real[i+2] > 50:                    
+          #              profit_pips -= 50
+         #           else:
+           #             profit_pips -= open_real[i+1] - close_real[i+2]
     #                print('Bad guess!!!')
-            if ma5_real[i] > mean_of_predicted:
+            #if ma5_real[i] > mean_of_predicted:
 #                print('Ma5 Closes: ',ma5_real[i])
  #               print('Mean of predicted: ', mean_of_predicted)
   #              print('Next day: ', open_real[i+1], high_real[i+1], low_real[i+1], close_real[i+1])            
-                if close_real[i+2] < open_real[i+1]:
+             #   if close_real[i+2] < open_real[i+1]:
    #                 print('Good guess!!!')
-                    signal_correct += 1
-                    profit_pips +=  open_real[i+1] - close_real[i+2]
-                else: #actual price went lower
-                    signal_incorrect += 1
-                    if open_real[i+1] - close_real[i+2] < 50:                    
-                        profit_pips -= 50
-                    else:
-                        profit_pips -= close_real[i+2] - open_real[i+1]
+              #      signal_correct += 1
+               #     profit_pips +=  open_real[i+1] - close_real[i+2]
+                #else: #actual price went lower
+                 #   signal_incorrect += 1
+                  #  if open_real[i+1] - close_real[i+2] < 50:                    
+                  #      profit_pips -= 50
+                  #  else:
+                   #     profit_pips -= close_real[i+2] - open_real[i+1]
     #                print('Bad guess!!!')                        
             
         print(name)
@@ -257,31 +278,31 @@ class GAN():
         print('Profit pips: ', int(profit_pips))
 
 #       Try predict future half
-#        open_future = []
-#        close_future = []
-#        low_future = []
-#        high_future = []
-#        new_x = [x[time_size//2:(time_size//2)+1]]
-#        for i in range(time_size //2 ):
-#            prediction = g_model.predict(new_x)[0]
-#            new_x = np.zeros((1, num_days, self.num_params))
-#            new_x[0,:] = prediction[1:]
-#            
-#            prediction = mean + (prediction * std)
-#            open_future.append(prediction[-1][0])
-#            high_future.append(prediction[-1][1])
-#            low_future.append(prediction[-1][2])
-#            close_future.append(prediction[-1][3])            
+        #open_future = []
+        #close_future = []
+        #low_future = []
+        #high_future = []
+        #new_x = [x[time_size//2:(time_size//2)+1]]
 
-#        ax.vlines(dates[time_size//2:] + day_offset, low_future, high_future, color='red')
-#        ax.hlines(open_future, dates[time_size//2:] - OC_offset+ day_offset  , dates[time_size//2:]+ day_offset , color='red')
-#        ax.hlines(close_future, dates[time_size//2:] + OC_offset + day_offset, dates[time_size//2:] + day_offset, color='red')
-        
+        #for i in range(time_size //2 ):
+           # prediction = g_model.predict(new_x)[0]
+          #  new_x = np.zeros((1, num_days, self.num_params))
+         #   new_x[0,:] = prediction[1:]
+        #    prediction = means[time_size//2] + (prediction * stds[time_size//2])
+       #     open_future.append(prediction[-1][0])
+      #      high_future.append(prediction[-1][1])
+     #       low_future.append(prediction[-1][2])
+    #        close_future.append(prediction[-1][3])            
+
+   #     ax.vlines(dates[time_size//2:] + day_offset, low_future, high_future, color='red')
+  #      ax.hlines(open_future, dates[time_size//2:] - OC_offset+ day_offset  , dates[time_size//2:]+ day_offset , color='red')
+ #       ax.hlines(close_future, dates[time_size//2:] + OC_offset + day_offset, dates[time_size//2:] + day_offset, color='red')
+#        plt.savefig(self.result_path+name.split('/')[-1]+'_chart.png')
         
 num_steps = 5
 batch_size = 100
-num_params = 8
-ma_days = 5
+num_params = 7
+ma_days = 7
 opt = Adam(lr=0.001, beta_1=0.999)    
 
 
@@ -293,18 +314,18 @@ opt = Adam(lr=0.001, beta_1=0.999)
 #d_model = models.define_discriminator_LSTM(num_steps, num_params, opt)
 
 #g_model = models.generator_orig(num_steps, num_params, opt)
-#d_model = models.define_discriminator(num_steps, num_params)
+#d_model = models.define_discriminator_LSTM(num_steps, num_params, opt)
 
-path = '2022-04-29-17-30-07_GAN'
+path = '2022-05-03-22-40-09_GAN'
 g_model = tf.keras.models.load_model('./saved_models/'+path+'/g_model', compile=False)
 d_model = tf.keras.models.load_model('./saved_models/'+path+'/d_model', compile=False)
 d_model.compile(loss=my_dloss, optimizer=opt,  metrics=[my_dacc])
-g_model.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE])   
+g_model.compile(loss=my_gMAE, optimizer=opt, metrics=[my_gMAE, openMAE, highMAE, lowMAE, closeMAE, nextOpenMAE]) 
 
 my_gan = GAN(g_model, d_model, num_steps, num_params, ma_days, batch_size, opt)
 
-#my_gan.train_GAN(gan_epochs=30)
-#my_gan.save_models()
+my_gan.train_GAN(gan_epochs=100)
+my_gan.save_models()
 my_gan.all_stocks()
 #########a = my_gan.g_evaulation()
 ########3print(a)
